@@ -1,0 +1,972 @@
+---
+title: "Démo projet attrition client (Churn) sous R"
+author: "@Madiba"
+date: today
+format: 
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    toc-title: "Sommaire"
+    toc-location: left
+    number-sections: true
+    df-print: paged
+    code-tools: false
+    code-fold: false
+execute:
+  echo: false
+  warning: false
+  message: false
+editor: visual
+---
+
+------------------------------------------------------------------------
+
+### `Contexte et Enjeux`
+
+L’objectif de ce projet est de comprendre et d'anticiper le comportement des clients d'une entreprise de télécommunications afin de prédire le risque de résiliation.
+
+En exploitant l’historique et le profil de la base clientèle, ce projet vise à identifier les facteurs clés qui poussent un abonné à quitter l'entreprise. Cette démarche permettra de concevoir des programmes de fidélisation proactifs et ciblés, optimisant ainsi les investissements marketing tout en limitant les pertes de revenus.
+
+### `Description du Jeu de Données`
+
+L'analyse s'appuie sur un [jeu de données](https://www.kaggle.com/datasets/blastchar/telco-customer-churn) où chaque observation (ligne) représente un client unique. Les 21 variables (colonnes) documentent les caractéristiques de ces abonnés selon quatre axes majeurs :
+
+- **La variable cible** : la variable `Churn` indique si le client a résilié son abonnement ou pas.
+
+- **Les services souscrits** :
+
+  - `Téléphonie` : ligne simple ou lignes multiples.
+  - `Internet` : type de connexion (DSL, Fibre optique).
+  - `Services additionnels` : sécurité en ligne, sauvegarde cloud, protection des équipements, support technique, et services de streaming (TV, Films).
+
+- **Le profil contractuel et financier** :
+
+  - `Engagement` : ancienneté du client (*tenure*) et type de contrat (mensuel, annuel, bi-annuel).
+  - `Facturation` : méthode de paiement, option de facturation électronique et montant mensuel facturé.
+
+- **Le profil démographique** :
+
+  - `Genre`
+  - `Catégorie d'âge` (sénior)
+  - `Situation familiale` (présence d'un partenaire ou de personnes à charge)
+
+### `Synthèse de l'analyse de forme`
+
+- Objectifs de cette étape :
+
+  - S'approprier la structure, les distributions et les corrélations du jeu de données.
+  - Définir une première stratégie de préparation des données et de modélisation.
+
+- Bilan de l'inspection initiale :
+
+  - Dimension du dataset : 7043 lignes pour 21 colonnes.
+  - Typologie des variables : 3 variables quantitatives et 18 variables qualitatives.
+  - Valeurs manquantes : 11 valeurs manquantes détectées pour la variable `TotalCharges`.
+  - Doublons : Aucun doublon identifié, garantissant l'unicité des observations.
+
+------------------------------------------------------------------------
+
+### `Analyse exploratoire des données`
+
+```{r, message=FALSE, warning=FALSE}
+
+## Import libraries 
+library(tidyverse)
+library(dlookr)
+library(DataExplorer)
+library(flextable)
+library(officer) 
+library(questionr)
+library(dummy)
+library(here)
+library(gt)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+## Cette fonction permet d'avoir un style homogène pour nos différentes tables 
+
+#> Arguments aléatoires : 
+#> Table : la table qui sera stylisée 
+#> Titre : le titre du tableau 
+
+## Fonction table_format 
+table_format <- function(table, 
+                         title = "",
+                         width_px = NULL,  
+                         font_size = 12,
+                         padding_px = 6) { 
+  
+  # Convertir la table d'origine en 'flextable' si nécessaire
+  if (!inherits(table, "flextable")) {
+    table <- flextable(table)
+  }
+  
+  # Définir les bordures avec le package officer
+  border_heavy <- fp_border(color = "#333333", width = 2)
+  border_light <- fp_border(color = "#f0f0f0", width = 1)
+  
+  # Calculer des lignes paires pour les bandes alternées
+  n_rows <- nrow_part(table, part = "body")
+  even_rows <- if (n_rows >= 2) seq(2, n_rows, by = 2) else integer(0)
+  
+  table <- table |>
+    set_caption(caption = title) |>
+    
+    # Typographie globale
+    font(fontname = "Inter", part = "all") |>
+    fontsize(size = font_size, part = "all") |>
+    
+    # Espacement interne
+    padding(padding = padding_px, part = "all") |>
+    
+    # Esthétique des en-têtes 
+    align(align = "left", part = "header") |>
+    bold(part = "header") |>
+    bg(bg = "#ffffff", part = "header") |>
+    
+    # Bandes alternées sur les lignes paires
+    bg(i = even_rows, bg = "#fafafa", part = "body") |>
+    
+    # Nettoyage total puis application des bordures personnalisées
+    border_remove() |>
+    hline(border = border_light, part = "body") |>               
+    hline_bottom(border = border_heavy, part = "header") |>      
+    hline_bottom(border = border_heavy, part = "body")          
+  
+  # Gestion de la largeur
+  if (is.null(width_px)) {
+    data <- autofit(table) 
+  } else {
+    
+    # Forcer une largeur fixe en pixels lors d'un rendu HTML :
+    table <- set_table_properties(
+      table, 
+      layout = "fixed", 
+      opts_html = list(extra_css = paste0("width: ", width_px, "px;"))
+    )
+  }
+  
+  return(table)
+}
+
+```
+
+#### `Les 5 premières lignes du jeu de données`
+
+```{r, message=FALSE, warning=FALSE}
+
+# Le chemin ou se trouve notre jeu de données 
+path.chrun <- here::here("data", "raw")
+
+# Importation des données avec la fonction read.csv
+churn <- read.csv(paste(path.chrun, "Telco-Customer-Churn.csv", 
+                        sep = "/"), header = T)
+
+# Copie du jeu de données 
+churn_copie <- churn
+
+# Head 
+head(churn, 5) |> 
+  table_format()
+
+```
+
+#### `Inspection des données`
+
+- Seule la variable `TotalCharges` contient 11 valeurs manqauntes.
+- La variable `SeniorCitizen` est codée en integer.
+- Présence de la colonne `customerID` (à supprimer).
+
+```{r}
+# Inspection des données 
+churn |> 
+  dlookr::diagnose() |> 
+  table_format()
+
+```
+
+```{r}
+# Supprimer la colonne `customerID` & Recoder la variable `SeniorCitizen`
+churn <- churn |> dplyr::select(-customerID) |> 
+  dplyr::mutate(SeniorCitizen = factor(churn$SeniorCitizen, 
+                                       labels = c("No", "Yes")))
+
+```
+
+------------------------------------------------------------------------
+
+#### `Description de la variable target`
+
+- Dans ce jeu de données, on observe que 26,5% des clients ont résilié leur contrat.
+
+```{r}
+# Description de la variable `Churn` 
+freq(churn$Churn)
+
+```
+
+#### `Description des variables qualitatives`
+
+- `Démographie` : Population paritaire et relativement jeune (84 % \< 65 ans).
+- `Téléphonie` : Forte pénétration du service (90 % des abonnés).
+- `Internet` : La fibre optique est la technologie dominante (44 %).
+- `Contrats` : Prédominance des abonnements mensuels (55 %).
+- `Paiement` : Le chèque électronique est le moyen de règlement le plus utilisé.
+
+```{r}
+# Description des variables qualitatives 
+churn |> dplyr::select(-Churn) |> 
+  dlookr::diagnose_category() |> 
+  table_format() 
+
+```
+
+#### `Diagnostique des variables quantitative`
+
+- Aucun outlier détecté.
+- Pour la variable `tenure`, on observe le minimum à zero mois (pas claire).
+- En moyenne, les clients de cette entreprise dépensent 64,76 euros par mois.
+
+```{r}
+# Diagnostique des variables quantitative   
+churn |> diagnose_numeric() |> 
+  table_format()
+
+```
+
+```{r}
+# Suppression des 11 clients
+churn <- churn |> filter(tenure !=0)
+
+```
+
+------------------------------------------------------------------------
+
+### `Analyse bivariée`
+
+#### `Test de normalité (Shapiro-Wilk)`
+
+- `Hypothèses du test de normalité`:
+
+- H0 : La variable suit une distribution normale.
+
+- H1 : La variable ne suit pas une distribution normale.
+
+```{r}
+## Test de normalité 
+
+# Test de normalité 
+churn |> dlookr::normality()
+
+# QQplot 
+churn |> dlookr::plot_qq_numeric()
+
+```
+
+- Le test de Shapiro-Wilk suggère que les variables quantitatives s'écartent significativement d'une distribution normale. Par conséquent, nous privilégierons des méthodes et tests non paramétriques pour la suite de nos analyses.
+
+#### `Coefficient de correlation (Spearman)`
+
+```{r, message=FALSE, warning=FALSE}
+# Coefficient de correlation 
+churn |> 
+  dlookr::correlate(method = "spearman") |> 
+  table_format()
+
+```
+
+- Forte dépendance de `TotalCharges` : La variable `TotalCharges` présente une forte corrélation (supérieure à 0,50) avec `tenure` (l'ancienneté) d'une part, et avec `MonthlyCharges` (le montant mensuel) d'autre part.
+
+- Explication : Ce résultat est parfaitement logique et attendu. Le montant total facturé (`TotalCharges`) est structurellement le produit cumulé de l'ancienneté du client par son coût mensuel. Il existe donc une redondance d'information inhérente à la construction même de cette variable.
+
+- Indépendance relative entre `MonthlyCharges` et `tenure` : En revanche, nous constatons un coefficient de corrélation faible (0,27) entre le montant mensuel facturé (`MonthlyCharges`) et l'ancienneté (`tenure`). Cela indique que le montant de l'abonnement d'un client n'est pas lié à son ancienneté. Un nouveau client peut tout à fait souscrire immédiatement à une offre premium coûteuse, tout comme un client historique peut conserver une offre d'entrée de gamme bon marché.
+
+#### `Impact pour la modélisation & Vision Business`
+
+- **Prévention de la multi-colinéarité** : En raison de la forte corrélation de `TotalCharges` avec les deux autres variables, son inclusion dans un modèle aux côtés des variables `tenure` et `MonthlyCharges` créerait un problème majeur de **multi-colinéarité**. Cela pourrait déstabiliser les coefficients du modèle et fausserait l'interprétation de leur impact sur le **churn**.
+
+- **Décision méthodologique :** Il est mathématiquement plus robuste d'exclure `TotalCharges` du modèle final et de ne conserver que `tenure` et `MonthlyCharges`, qui sont largement indépendantes l'une de l'autre.
+
+- **Segmentation Client :** La faible corrélation entre l'ancienneté et le montant mensuel pourrait indiquer la présence de profils clients très diversifiés. Nous pouvons identifier deux profils extrêmes à surveiller.
+
+  - Les "nouveaux premium" : Faible ancienneté mais facturation mensuelle élevée. Ce profil est hautement stratégique car il génère beaucoup de valeur rapidement, mais il est encore fragile car non fidélisé.
+
+  - Les "anciens économiques" : Forte ancienneté mais faible facturation. Ce profil est stable, mais son potentiel de génération de revenus reste sous-exploité.
+
+------------------------------------------------------------------------
+
+```{r}
+# Variable tenure en années 
+ churn <- churn %>%
+   mutate(
+     AnneeFidelite = cut(
+       tenure,
+       breaks = c(0, 12, 24, 36, 72),
+       labels = c("1 an", "2 ans", "3 ans", "4 ans"),
+       right = TRUE,
+       include.lowest = TRUE
+     )
+   )
+
+```
+
+```{r}
+# Suppromer churn 
+churn <- churn |> dplyr::select(-tenure)
+
+```
+
+#### `Variables catégorielles vs Target`
+
+##### `Graphique 1 : Répartition des variables catégorielles selon le Churn`
+
+```{r, message=FALSE, warning=FALSE}
+
+#| fig-width: 14
+#| fig-height: 18
+#| warning: false
+
+
+GraphCat <- function(data, variable_cible = "Churn") {
+  data |> 
+    DataExplorer::plot_bar(
+      by = variable_cible,
+      nrow = 8,
+      ncol = 3,  
+      ggtheme = ggplot2::theme_minimal(), 
+    )
+  }
+
+# Exécution de la fonction
+GraphCat(churn)
+
+```
+
+##### `Graphique 2 : Profil des clients n'ayant pas résilié leur contrat`
+
+```{r}
+## Target VS certaines variables qui nous sembles discriminantes
+churn |> 
+  guideR::plot_proportions(
+    Churn == "No",
+    by = c(SeniorCitizen, Dependents, Partner, MultipleLines, 
+           InternetService, Contract, PaymentMethod),
+    fill = "lightblue",
+    flip = TRUE)
+
+```
+
+##### `Graphique 2 : Profil des clients qui ont résilié leur contrat`
+
+```{r}
+churn |> 
+  guideR::plot_proportions(
+    Churn == "Yes",
+     by = c(SeniorCitizen, Dependents, Partner, MultipleLines,
+            InternetService, Contract, PaymentMethod), 
+    fill = "lightblue",
+    flip = TRUE
+  )
+
+```
+
+##### `Test de chi2`
+
+```{r, message=FALSE, warning=FALSE}
+## Création de la variable ServiceSup
+ServiceSupVars <- c(
+  "OnlineSecurity",
+  "OnlineBackup",
+  "DeviceProtection",
+  "TechSupport",
+  "StreamingTV",
+  "StreamingMovies"
+)
+
+# Création de la nouvelle variable
+churn <- churn |> 
+  mutate(
+    ServiceSup = case_when(
+      # Cas 1 : tous = "No internet service"
+      if_all(all_of(ServiceSupVars), ~ . == "No internet service") ~ 
+        "No internet service",
+      # Cas 2 : au moins un = "Yes"
+      if_any(all_of(ServiceSupVars), ~ . == "Yes") ~ "Yes",
+      # Cas 3 : sinon
+      TRUE ~ "No"
+    )
+  ) 
+
+
+# Sup les variables ServiceSupVars
+churn <- churn |> dplyr::select(-ServiceSupVars)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+library(ggstatsplot)
+library(purrr)
+library(dplyr)
+library(patchwork)
+
+khi2_test <- function(data, target) {
+
+  # Sélection et nettoyage des variables qualitatives
+  vars_quali <- data |> 
+    dplyr::select(where(~ is.factor(.x) || is.character(.x))) |>  
+    names()
+  
+  vars_quali <- setdiff(vars_quali, target)
+  
+  # Séparation des variables en deux groupes
+  n_vars <- length(vars_quali)
+  milieu <- ceiling(n_vars / 2)
+  
+  vars_g1 <- vars_quali[1:milieu]
+  vars_g2 <- vars_quali[(milieu + 1):n_vars]
+  
+  # Sous-fonction pour créer un patchwork pour un groupe donné
+  creer_patchwork_groupe <- function(variables) {
+    plots <- map(variables, function(var) {
+      ggbarstats(
+        data = data, 
+        x = !!sym(target),
+        y = !!sym(var), 
+        label = "both",
+        title = var,
+        bf.message = FALSE,      # Supprime le message Bayesien
+        results.subtitle = TRUE  # Conserve le test du Chi²
+      )
+    })
+    # Assemblage sur 2 colonnes avec légende unique sur le côté
+    wrap_plots(plots, ncol = 2, guides = "collect")
+  }
+  
+  # Génération des deux sous-ensembles de graphiques
+  g1 <- creer_patchwork_groupe(vars_g1)
+  g2 <- creer_patchwork_groupe(vars_g2)
+  
+  # On retourne les deux sous-graphiques dans une liste
+  return(list(groupe1 = g1, groupe2 = g2))
+}
+
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+#| label: generation-graphiques
+#| include: false
+
+resultats_graphiques <- khi2_test(churn, "Churn")
+
+```
+
+```{r}
+#| label: affichage-groupe-1
+#| fig-width: 14
+#| fig-height: 14
+#| warning: false
+#| message: false
+
+resultats_graphiques$groupe1
+
+```
+
+```{r}
+#| label: affichage-groupe-2
+#| fig-width: 14
+#| fig-height: 14
+#| warning: false
+#| message: false
+
+resultats_graphiques$groupe2
+
+```
+
+##### `Test de Mann Whitney`
+
+```{r, message=FALSE, warning=FALSE}
+MannWhitney_test <- function(data, target) {
+  
+  vars_quant <- data |> 
+    dplyr::select(where(is.numeric)) |> 
+    names()
+  
+  vars_quant <- setdiff(vars_quant, target)
+
+  plots <- map(vars_quant, function(var) {
+    ggbetweenstats(
+      data = data,
+      x = !!sym(target),
+      y = !!sym(var),
+      type = "np",
+      title = var
+    )
+  })
+  
+  graphique_combine <- wrap_plots(plots, ncol = 2)
+  
+  return(graphique_combine)
+}
+ 
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+#| fig-width: 18
+#| fig-height: 8
+#| warning: false
+#| message: false
+
+MannWhitney_test(churn, "Churn")
+
+```
+
+------------------------------------------------------------------------
+
+### `Portrait des clients à fort risque d'attrition`
+
+L'analyse des profils de résiliation révèle des signaux faibles et des tendances claires. Nous pouvons regrouper ces facteurs de risque selon trois dimensions : le profil démographique, l'offre de service et le comportement de paiement.
+
+#### `Profil Démographique`
+
+- **Le Segment des séniors (65 ans et plus) :**
+
+  - *Constat :* les clients âgés affichent un taux d'attrition significativement supérieur à la moyenne globale de la base de données.
+
+  - *Vision Business :* ce segment est souvent plus sensible aux augmentations de tarifs ou peut faire face à des difficultés avec les services purement digitaux.
+
+  - *Action :* mettre en place un canal d'assistance téléphonique prioritaire et concevoir des offres de fidélisation simplifiées et stables pour ce public.
+
+- **L'Absence de cersonnes à Charge :**
+
+  - *Constat :* les clients sans personnes à charge présentent une probabilité de départ plus élevée.
+
+  - *Vision Business :* ce résultat met en lumière l'impact de l'**autonomiedécisionnelle**. Lorsqu'un client gère sa ligne de manière purement individuelle, sans enfants ou proches qui dépendent de sa connexion pour le quotidien (études, télétravail), il n'a aucune contrainte familiale. S'il trouve une offre moins chère ailleurs, il peut résilier instantanément sans perturber la vie du foyer. Cette absence de responsabilité domestique élimine un frein psychologique majeur au changement d'opérateur.
+
+  - *Action :* Pour retenir ces profils autonomes, la stratégie ne doit pas reposer sur des packages familiaux, mais sur des avantages individualisés : flexibilité de l'offre, programmes de récompenses solos, ou partenariats exclusifs (gaming, plateformes de streaming de musique/vidéo).
+
+#### `Profil de l'offre : le paradoxe de la Fibre Optique`
+
+- **La volatilité de la fibre optique :**
+
+  - *Constat :* contre-intuitivement, les abonnés à la fibre optique résilient plus fréquemment que les utilisateurs de connexions plus anciennes (comme le DSL).
+
+  - *Vision Business :* La fibre étant une offre premium et très disputée, ce segment subit un ciblage agressif de la part des concurrents (promotions de bienvenue par exemple). Cela peut aussi révéler une insatisfaction liée à la qualité du service technique ou un rapport qualité-prix jugé décevant après la fin de la période promotionnelle de première année.
+
+  - *Action :* Initier un audit de satisfaction technique dès le 6ème mois pour ces clients et aligner les offres de rétention sur le très haut débit.
+
+#### `Profil Financier : instabilité de l'engagement mensuel`
+
+- **La fragilité du contrat mensuel :**
+
+  - *Constat :* les contrats à tacite reconduction mensuelle (sans engagement de durée) sont associés à la plus forte instabilité de la clientèle.
+
+  - *Vision Business :* l'absence de barrière contractuelle transforme chaque facture mensuelle en une opportunité de départ. Ce mode de facturation offre une flexibilité totale pour aller voir ailleurs.
+
+  - *Action :* Automatiser des campagnes d'engagement (offrir un mois gratuit ou des options en échange d'un passage au contrat annuel).
+
+- **Le danger du chèque électronique :**
+
+  - *Constat :* les abonnés réglant par chèque électronique s'en vont beaucoup plus vite que ceux utilisant d'autres moyens de paiement (carte bancaire ou prélèvement automatique).
+
+  - *Vision Business :* Le chèque électronique demande une action manuelle répétée chaque mois. Le client est donc confronté activement à sa dépense, ce qui réactive mensuellement sa "douleur de payer". À l'inverse, le prélèvement automatique rend la dépense invisible.
+
+  - *Action :* offrir une remise ponctuelle unique (ex: 5/10 € sur la prochaine facture) pour tout client acceptant de basculer vers le prélèvement bancaire automatique.
+
+------------------------------------------------------------------------
+
+::: {.callout-warning title="Alerte : Le profil client le plus critique"}
+Un client **sénior**, vivant **seul**, équipé de la **fibre optique**, sous un **contrat mensuel** et payant par **chèque électronique** réunit les facteurs de risque. Ce profil doit faire l'objet d'une surveillance prioritaire et de campagnes anti-churn automatisées.
+:::
+
+------------------------------------------------------------------------
+
+```{r}
+# Préparation des données 
+df <- churn
+
+# churn <- churn |> dplyr::select(-c(gender, PhoneService))
+
+churn <- churn |> 
+  dplyr::mutate(FibreOptic = ifelse(InternetService == "Fiber optic", "1", "0" ), 
+         MultipleLines = ifelse(MultipleLines == "Yes", "1", "0"), 
+         ServiceSup = ifelse(ServiceSup == "Yes", "1", "0")) |>
+  dplyr::select(-InternetService)
+
+```
+
+```{r}
+# Recoder la variable gender en 0, 1 
+churn <- churn |> 
+  dplyr::mutate(gender = ifelse(gender == "Female", "No", "Yes"))
+
+```
+
+```{r}
+## Cette fonction recode les variables binaires du type (yes, no) en (1, 0)
+
+RecodeYesNo <- function(data) {
+  data |> 
+    dplyr::mutate(
+      dplyr::across(
+        dplyr::where(~ is.character(.x) || is.factor(.x)),
+        ~ {
+          # Conversion explicite en caractère si c'est un factor
+          vec_char <- as.character(.x)
+          valeurs_uniques <- na.omit(unique(vec_char))
+          
+          # Vérifie si le vecteur contient uniquement des valeurs parmi "Yes" et "No"
+          if (length(valeurs_uniques) > 0 && all(valeurs_uniques %in% c("Yes", "No"))) {
+            dplyr::if_else(vec_char == "Yes", "1", "0", missing = NA_character_)
+          } else {
+            .x
+          }
+        }
+      )
+    )
+}
+
+
+
+```
+
+```{r}
+# recoder variable 
+churn <- RecodeYesNo(data=churn)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+library(fastDummies)
+
+CreateDummies <- function(data, variables) {
+  
+  colonnes_initiales <- colnames(data)
+  
+  data_dummies <- fastDummies::dummy_cols(
+    data, 
+    select_columns = variables,
+    remove_first_dummy = TRUE,
+    remove_selected_columns = TRUE
+  )
+  
+  # Identifier précisément les nouvelles colonnes créées
+  nouvelles_colonnes <- setdiff(colnames(data_dummies), colonnes_initiales)
+  
+  # Convertir ces nouvelles colonnes en type caractère ("0" / "1")
+  data_dummies <- data_dummies |> 
+    dplyr::mutate(across(all_of(nouvelles_colonnes), as.character))
+  
+  return(data_dummies)
+}
+
+```
+
+```{r}
+churn <- CreateDummies(data=churn, variables = c("Contract", "PaymentMethod"))
+
+```
+
+```{r}
+
+## Normalisation des variables numériques 
+NormaliserMinMax <- function(data) {
+  data |> 
+    dplyr::mutate(
+      across(
+        where(is.numeric),
+        ~ {
+          # Calcul du minimum et du maximum en ignorant les NA
+          val_min <- min(.x, na.rm = TRUE)
+          val_max <- max(.x, na.rm = TRUE)
+          
+          # Application de la formule
+          (.x - val_min) / (val_max - val_min)
+        }
+      )
+    )
+}
+
+# Exemple d'utilisation :
+churn <- NormaliserMinMax(churn)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+# Rename variables
+churn <- churn |> rename(
+  #"Contract_Month_to_month" = "Contract_Month-to-month", 
+ "Contract_One_year" = "Contract_One year", 
+ "Contract_Two_year" = "Contract_Two year", 
+ #"PaymentMethod_Bank_transfer" = "PaymentMethod_Bank transfer (automatic)",
+ "PaymentMethod_Credit_card" = "PaymentMethod_Credit card (automatic)",
+ "PaymentMethod_Electronic_check" = "PaymentMethod_Electronic check",
+ "PaymentMethod_Mailed_check" = "PaymentMethod_Mailed check", 
+#  #"AnneeFidelite_1" = "AnneeFidelite_1 an", 
+#  "AnneeFidelite_2" = "AnneeFidelite_2 ans", 
+#  "AnneeFidelite_3" = "AnneeFidelite_3 ans", 
+#  "AnneeFidelite_4" = "AnneeFidelite_4 ans", 
+#  "ServiceSup_No_internet_service" = "ServiceSup_No internet service"
+)
+
+```
+
+------------------------------------------------------------------------
+
+### `Modèle de régression logistique`
+
+#### `Modèle avec toutes les facteurs`
+
+```{r}
+## Target recodée en facteuur 
+churn$Churn <- as.numeric(churn$Churn) -1
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+# Modèle de régression logistique binaire avec toutes les caractéristiques
+reg_log <- glm(Churn ~ ., data = churn, family = "binomial")
+
+# summary(reg_log)
+
+library(gtsummary)
+
+reg_log |> 
+  tbl_regression(exponentiate = TRUE) |> 
+  bold_labels()
+
+```
+
+##### `Vérification de la colinéarité pour le modèle complet`
+
+```{r}
+# Multicolinéarité 
+performance::check_collinearity(reg_log)
+
+```
+
+------------------------------------------------------------------------
+
+##### `Diagnostic du modèle complet`
+
+L'analyse combinée de la table de régression et des facteurs d'inflation de la variance (VIF) révèle deux problèmes majeurs qui nuisent à la validité et à la parcimonie du modèle actuel.
+
+- Une multicolinéarité élevée :
+
+les variables numériques affichent des VIF élevés, bien au-delà du seuil critique standard de 5 (et même de 10) :
+
+- TotalCharges : VIF = 19.10
+
+- tenure : VIF = 15.41
+
+- MonthlyCharges : VIF = 10.06
+
+- Symptôme classique détecté : l'intervalle de confiance de `TotalCharges` est anormalement large (2.36, 24.0), signe d'une grande instabilité numérique.
+
+- Des prédicteurs inutiles (non significatifs):
+
+Plusieurs variables n'apportent aucune information statistiquement significative au modèle (p \> 0.05) et surchargent inutilement l'équation :
+
+- gender (p \> 0.8)
+
+- Partner (p \> 0.9)
+
+- ServiceSup (p = 0.5)
+
+- PaymentMethod_Credit_card (p = 0.4)
+
+- PaymentMethod_Mailed_check (p = 0.2)
+
+- Conclusion :
+
+Le modèle actuel est sur-paramétré et instable. Pour obtenir un modèle robuste et parcimonieux, il faut appliquer une stratégie de réduction de dimension en deux étapes.\*
+
+- Étape 1 : Résoudre la colinéarité en priorité. La variable `TotalCharges` étant une construction mathématique dérivée de l'ancienneté (tenure) et du coût mensuel (MonthlyCharges), elle est redondante.
+
+  - Action : Supprimez immédiatement `TotalCharges` du modèle.
+  - Résultat attendu : Les VIF de `tenure` et `MonthlyCharges` vont s'effondrer sous le seuil de 3.
+
+- Étape 2 : Une fois la colinéarité traitée, il faut nettoyer les variables bruitées (non significatives).
+
+```{r}
+# Suppression de variales non significatives  
+churn_subset <- churn |> dplyr::select(- c(gender, Partner, TotalCharges,
+                                           PaymentMethod_Credit_card,
+                                           PaymentMethod_Mailed_check))
+
+```
+
+------------------------------------------------------------------------
+
+#### `Modèle sans les variables non significatives et la variable TotalCharges`
+
+```{r}
+# modèle sans la variable TotalCharges
+reg_log_subset <- glm(Churn ~ ., data = churn_subset, family = "binomial")
+
+# summary(reg_log_subset)
+
+reg_log_subset |> 
+   tbl_regression(exponentiate = TRUE) |> 
+   bold_labels()
+
+```
+
+##### `Vérification de la colinéarité pour le modèle sans la variable TotalCharges`
+
+```{r, message=FALSE, warning=FALSE}
+
+# Multicolinéarité 
+performance::check_collinearity(reg_log_subset)
+
+```
+
+##### `Diagnostic du modèle dans TotalCharges`
+
+En excluant les variables redondantes `Partner`, `ServiceSup`, `TotalCharges` `PaymentMethod`, le modèle a retrouvé sa stabilité numérique. Nous pouvons désormais analyser les coefficients de manière fiable.
+
+- Observation majeure : La "libération" de la variable `MonthlyCharges`
+
+- Ce qui a changé : Dans le modèle précédent, le coût mensuel (MonthlyCharges) n'était pas significatif (p = 0.2) avec un Odds Ratio (OR) de 1.63. Dans ce nouveau modèle, `MonthlyCharges` devient hautement significatif (p \< 0.001) et son OR grimpe à 3.05 (IC 95% : 1.60, 5.79).
+
+- Interprétation : C'est la preuve mathématique que la colinéarité masquait l'effet réel de cette variable. Toutes choses égales par ailleurs, un client ayant des charges mensuelles élevées est désormais identifié comme ayant un risque de départ beaucoup plus important (multiplié par 3).
+
+- Diagnostic des variables restantes : Bien que ce modèle soit plus sain, il contient encore des variables "bruitées" (non significatives) qui nuisent à sa parcimonie.
+
+------------------------------------------------------------------------
+
+```{r, message=FALSE, warning=FALSE}
+
+# Step AIC 
+library(MASS)
+# stepAIC(reg_log_subset, direction = "both")
+
+```
+
+##### `Graphique Odd-Ratio`
+
+```{r}
+reg_log_subset |> 
+  ggstats::ggcoef_table(exponentiate = TRUE)
+
+```
+
+------------------------------------------------------------------------
+
+#### `Comparaison des modèles`
+
+##### `Le Test du Rapport de Vraisemblance`
+
+- **H0** : Les coefficients des variables retirées dans le modèle simplifié sont tous nuls (le modèle simplifié est suffisant).
+
+- **H1** : Au moins un des coefficients retirés est non nul (le modèle complet apporte un gain d'explication significatif).
+
+La statistique de test est basée sur la différence de déviance :\
+
+$$D = \text{Déviance}_{\text{simplifié}} - \text{Déviance}_{\text{complet}}$$
+
+```{r}
+test_anova <- anova(reg_log_subset, reg_log, test = "Chisq")
+test_anova
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+library(pROC)
+
+# Extraction des probabilités prédites pour chaque modèle
+prob_complet   <- predict(reg_log, type = "response")
+prob_simplifie <- predict(reg_log_subset, type = "response")
+
+# Calcul des AUC 
+# (reg_log$y récupère automatiquement la vraie valeur 0/1 de la variable cible)
+auc_complet   <- as.numeric(auc(reg_log$y, prob_complet))
+auc_simplifie <- as.numeric(auc(reg_log_subset$y, prob_simplifie))
+
+
+# Calcul du Pseudo-R2 de McFadden (1 - Déviance Résiduelle / Déviance Nulle)
+r2_mcfadden_complet   <- 1 - (reg_log$deviance / reg_log$null.deviance)
+r2_mcfadden_simplifie <- 1 - (reg_log_subset$deviance /
+                                reg_log_subset$null.deviance)
+
+# Construction du tableau de bord comparatif
+df_criteres <- data.frame(
+  Modele             = c("Complet", "Simplifié"),
+  AIC                = c(AIC(reg_log), AIC(reg_log_subset)),
+  BIC                = c(BIC(reg_log), BIC(reg_log_subset)), 
+  Deviance_Residuelle = c(reg_log$deviance, reg_log_subset$deviance),
+  Pseudo_R2_McFadden = c(r2_mcfadden_complet, r2_mcfadden_simplifie),
+  AUC                = c(auc_complet, auc_simplifie)
+)
+
+df_criteres[-1] <- round(df_criteres[-1], 4)
+
+df_criteres
+
+```
+
+#### `Choix de modèle`
+
+Le modèle simplifié affiche une bonne performance globale pour expliquer/prédire l'attrition (Churn). Avec une AUC de 0,8419, il démontre un fort pouvoir discriminant pour cibler efficacement les clients à risque. Son pseudo-$R^2$ de McFadden de 0,2741 confirme également la solidité de l'ajustement, puisqu'un score compris dans la zone des 0,20 à 0,40 est l'indicateur standard d'un modèle logistique performant.
+
+Le choix de cette version plutôt que du modèle complet s'appuie sur une stricte logique de parsimonie et d'efficacité opérationnelle. Bien que l'ANOVA montre que l'apport des cinq variables supprimées soit statistiquement significatif (p = 0,0275), le gain business réel est dérisoire, puisque l'AUC ne progresse que de 0,0013. En revanche, le BIC s'améliore massivement de 32 points en faveur de la version simplifiée. Sur un échantillon de cette taille, ce critère prouve que le modèle simplifié protège le système contre le surapprentissage, réduit la complexité de maintenance des données en production et reste beaucoup plus simple à interpréter pour les équipes métiers.
+
+------------------------------------------------------------------------
+
+### Synthèse : Analyse des moteurs d'attrition
+
+#### Résumé exécutif
+
+L'analyse des comportements de résiliation met en évidence que **l'engagement contractuel, l'ancienneté, ainsi que la détention d'un abonnement téléphonique et d'une assistance technique** sont les boucliers les plus efficaces contre le départ des clients. À l'inverse, une tarification mensuelle élevée (le facteur le plus lourd du modèle), l'offre fibre optique et les modes de gestion 100 % dématérialisés (chèque électronique, facturation sans papier) augmentent de manière critique la volatilité de la clientèle.
+
+#### Les facteurs de risque
+
+L'analyse identifie plusieurs zones de vulnérabilité financière et opérationnelle :
+
+- **L'hypersensibilité au prix (`MonthlyCharges`) :** C’est le signal d’alerte le plus violent du modèle. Plus la facture mensuelle est élevée, plus le risque de départ grimpe en flèche. L'ajout de lignes multiples (`MultipleLines`) aggrave cette tendance en alourdissant mécaniquement la note globale.
+
+- **Le paradoxe de la Fibre Optique (`FibreOptic`) :** Les clients disposant de la fibre sont nettement plus enclins à résilier. Cela suggère une forte agressivité commerciale des concurrents sur ce segment premium ou un décalage entre le prix payé et la qualité perçue.
+
+- **La volatilité des profils "Digital-First" (`Electronic_check` & `PaperlessBilling`) :** Les clients utilisant le chèque électronique et la facture en ligne partent beaucoup plus vite. L'absence de point de contact physique et la simplicité technique de résiliation réduisent les freins psychologiques au départ.
+
+- **Le segment des Séniors (`SeniorCitizen`) :** Les clients de plus de 65 ans affichent un risque de départ supérieur à la moyenne, ce qui nécessite une approche relationnelle ou des offres dédiées.
+
+#### Les leviers de rétention
+
+Ces caractéristiques agissent comme de puissants ancrages pour stabiliser votre portefeuille :
+
+- **L'engagement par contrat (Le levier n°1) :** Sécuriser la relation reste l'arme absolue. Passer d'un abonnement mensuel à un contrat d'un an réduit drastiquement le risque de départ. Le contrat de deux ans offre une rétention encore plus forte.
+- **La fidélité historique (`tenure`) :** Le risque de churn s'effondre de manière vertigineuse au fil du temps. Les premiers mois sont les plus critiques ; une fois passés, le client s'installe dans la durée.
+- **L'abonnement Téléphonique (`PhoneService`) :** Les clients possédant une ligne téléphonique fixe sont statistiquement beaucoup plus stables et fidèles à l'entreprise.
+- **L'Assistance Technique (`ServiceSup`) :** La souscription à un service de support ou d'assistance technique additionnel agit comme un excellent point d'attache et réduit significativement le départ.
+- **La structure familiale (`Dependents`) :** Les clients ayant des personnes à charge sont plus stables, le besoin de continuité du service pour le foyer limitant les démarches de changement de fournisseur.
+
+------------------------------------------------------------------------
+
+### Recommandations & Plan d'action
+
+- **Campagne agressive de conversion vers le long terme :** Cibler prioritairement les clients actuellement en "paiement mensuel" avec des incitations fortes pour les faire basculer sur des contrats de 1 ou 2 ans. La stabilisation de la base clients compensera largement l'effort commercial initial.
+
+- **Audit et "bundling" de l'offre Fibre Optique :** Lancer une enquête sur le segment fibre pour ajuster le tir (problème de prix ou de pannes ?). Pour justifier les tarifs élevés (`MonthlyCharges`), packager systématiquement l'assistance technique (`ServiceSup`) dans les offres premium pour créer de la valeur perçue et retenir le client.
+
+- **Onboarding intensif des 6 premiers mois :** L'ancienneté étant un facteur protecteur majeur, un programme de suivi proactif (appels de courtoisie, diagnostics offerts) doit être instauré dès l'activation pour ancrer l'usage et franchir le cap critique du début de contrat.
+
+- **Valorisation des clients digitaux et fixes :** Mettre en avant les services de téléphonie fixe dans les foyers et recréer du lien avec les utilisateurs de factures dématérialisées (via des programmes de fidélité ou des newsletters personnalisées) pour éviter qu'ils ne perçoivent l'entreprise que comme une simple ligne de prélèvement automatique sur leur compte en banque.
+
+```{r}
+path.save <- here::here("data", "process")
+
+write.csv(churn,
+          paste(path.save,"churn_final_version3.csv", sep = "/"),
+          row.names = F)
+
+```
