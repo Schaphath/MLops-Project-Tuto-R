@@ -1,4 +1,8 @@
 
+
+# Auteur : @Madiba
+
+
 ##========================================##
 ##      ENTRAINEMENT MODELE XGBOOST       ##
 ##========================================##
@@ -17,11 +21,12 @@ library(here)
 #  Read data  #
 #=============#
 # Importation dataset 
-path.churn <- here("data", "process")
-dfNew <- read.csv(file.path(path.churn, "dfNew.csv"))
+path.churn <- here::here("data", "process")
+dfNew <- read.csv(paste(path.churn, "dfNew.csv", sep = "/"), header = T)
 
-# Assure que Churn est bien binaire (0 / 1)
-dfNew$Churn <- as.numeric(as.character(dfNew$Churn))
+
+# # Assure que Churn est bien binaire (0 / 1)
+# dfNew$Churn <- as.numeric(as.character(dfNew$Churn))
 
 
 #==============#
@@ -36,26 +41,26 @@ test_data   <- dfNew[-train_index, ]
 #======================================#
 # Preprocessing & One-Hot Encoding      #
 #======================================#
-rec <- recipe(Churn ~ ., data = train_data) %>%
-  step_zv(all_predictors()) %>%
-  step_range(all_numeric_predictors())
+rec <- recipe(Churn ~ ., data = train_data) |>
+  step_zv(all_predictors()) |> 
+  step_range(all_numeric_predictors()) 
 
 rec_prep <- prep(rec, training = train_data)
 
 
 # Application sur Train et Test
-x_train_df <- bake(rec_prep, new_data = NULL) %>% select(-Churn)
-x_test_df  <- bake(rec_prep, new_data = test_data) %>% select(-Churn)
+x_train_df <- bake(rec_prep, new_data = NULL) |> select(-Churn)
+x_test_df  <- bake(rec_prep, new_data = test_data) |> select(-Churn)
 
 y_train <- train_data$Churn
 y_test  <- test_data$Churn
 
 
-# Extraction features
+# Extraction nom feature
 features <- colnames(x_train_df)
 
 
-# Construction des matrices numériques XGBoost
+# Construction des matrices numériques pour XGBoost
 x_train <- as.matrix(x_train_df)
 x_test  <- as.matrix(x_test_df)
 
@@ -125,7 +130,7 @@ xgb_model <- xgb.train(
   params        = best_params,
   data          = dtrain,
   nrounds       = best_nrounds,
-  watchlist     = list(train = dtrain, eval = dtest),
+  evals        = list(train = dtrain),
   print_every_n = 50,
   verbose       = 1
 )

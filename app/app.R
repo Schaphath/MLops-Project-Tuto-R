@@ -1,5 +1,6 @@
 
-# Auteur original : @Schaphath-Madiba
+
+# Auteur @Madiba
 # Mise à jour : Recette de prétraitement 'recipes' + Seuil de décision optimal réassorti
 
 #=============#
@@ -187,9 +188,9 @@ ui <- dashboardPage(
     
     tabItems(
       
-      #=====================================================================
-      # Onglet 1 : Importation
-      #=====================================================================
+      #=========================#
+      # Onglet 1 : Importation  #
+      #=========================#
       tabItem(tabName = "import",
               fluidRow(
                 box(
@@ -225,9 +226,9 @@ ui <- dashboardPage(
               )
       ),
       
-      #=====================================================================
-      # Onglet 2 : Transform
-      #=====================================================================
+      #======================#
+      # Onglet 2 : Transform #
+      #======================#
       tabItem(tabName = "transform",
               fluidRow(
                 box(

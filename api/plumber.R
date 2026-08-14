@@ -1,5 +1,7 @@
 
-# plumber.R
+
+# Auteur @Madiba
+
 # API REST Plumber pour scoring Churn XGBoost
 
 library(plumber)
@@ -10,18 +12,20 @@ library(xgboost)
 library(recipes)
 library(here)
 
-# ================================================= #
+
+# =================================================#
 # 1. Chargement global des artefacts (Warm-up)     #
-# ================================================= #
-xgb_model   <- xgb.load(here("models", "xgb-classifier-model.json"))
-features    <- readRDS(here("models", "XGB-Model-Features.rds"))
-rec_prep    <- readRDS(here("models", "recipe_prep.rds"))
+# =================================================#
+xgb_model <- xgb.load(here("models", "xgb-classifier-model.json"))
+features <- readRDS(here("models", "XGB-Model-Features.rds"))
+rec_prep <- readRDS(here("models", "recipe_prep.rds"))
+
 
 best_thresh <- if (file.exists(here("models", "optimal_threshold.rds"))) {
   readRDS(here("models", "optimal_threshold.rds"))
-} else {
+  } else {
   0.5
-}
+    }
 
 #* @apiTitle XGBoost Churn Prediction API
 #* @apiDescription API d'inférence avec normalisation automatique de tenure et MonthlyCharges.
@@ -33,12 +37,13 @@ best_thresh <- if (file.exists(here("models", "optimal_threshold.rds"))) {
 # ================================================= #
 #* @get /health
 #* @serializer json
+
 function(res) {
   list(
-    status          = "healthy",
-    timestamp       = Sys.time(),
-    model_loaded    = !is.null(xgb_model),
-    features_count  = length(features),
+    status = "healthy",
+    timestamp = Sys.time(),
+    model_loaded = !is.null(xgb_model),
+    features_count = length(features),
     decision_thresh = best_thresh
   )
 }
@@ -52,6 +57,7 @@ function(res) {
 #* @post /predict
 #* @serializer json
 #* @param req:object Payload JSON contenant les variables brutes et dummifiées.
+
 function(req, res) {
   
   # 1. Parsing sécurisé du body JSON
@@ -106,10 +112,10 @@ function(req, res) {
     
     # 7. Résultat
     results <- data.frame(
-      id_client     = client_ids,
-      churn_proba   = round(pred_probs, 4),
-      churn_class   = pred_class,
-      decision      = ifelse(pred_class == 1, "Churn", "Non Churn"),
+      id_client = client_ids,
+      churn_proba = round(pred_probs, 4),
+      churn_class = pred_class,
+      decision = ifelse(pred_class == 1, "Churn", "Non Churn"),
       stringsAsFactors = FALSE
     )
     
@@ -140,54 +146,52 @@ function(pr) {
           schema = list(type = "array", items = list(type = "object")),
           example = list(
             list(
-              customerID                     = "CLIENT_1",
-              SeniorCitizen                  = 0,
-              Partner                        = 1,
-              Dependents                     = 0,
-              tenure                         = 1,
-              PaperlessBilling               = 1,
-              MonthlyCharges                 = 29.85,
-              MultipleLines_No               = 0,
+              SeniorCitizen = 0,
+              Partner = 1,
+              Dependents = 0,
+              tenure = 12,
+              PaperlessBilling = 1,
+              MonthlyCharges = 29.85,
+              MultipleLines_No = 0,
               MultipleLines_No_phone_service = 1,
-              MultipleLines_Yes              = 0,
-              InternetService_DSL            = 1,
-              InternetService_Fiber_optic    = 0,
-              InternetService_No             = 0,
-              Contract_Month_to_month        = 1,
-              Contract_One.year              = 0,
-              Contract_Two.year              = 0,
-              PaymentMethod_Bank_transfer    = 0,
-              PaymentMethod_Credit_card      = 0,
+              MultipleLines_Yes = 0,
+              InternetService_DSL = 1,
+              InternetService_Fiber_optic = 0,
+              InternetService_No = 0,
+              Contract_Month_to_month = 1,
+              Contract_One.year = 0,
+              Contract_Two.year = 0,
+              PaymentMethod_Bank_transfer = 0,
+              PaymentMethod_Credit_card = 0,
               PaymentMethod_Electronic_check = 1,
-              PaymentMethod_Mailed_check     = 0,
-              ServiceSup_No                  = 0,
+              PaymentMethod_Mailed_check = 0,
+              ServiceSup_No = 0,
               ServiceSup_No_internet_service = 0,
-              ServiceSup_Yes                 = 1
+              ServiceSup_Yes = 1
             ),
             list(
-              customerID                     = "CLIENT_5",
-              SeniorCitizen                  = 0,
-              Partner                        = 0,
-              Dependents                     = 0,
-              tenure                         = 2,
-              PaperlessBilling               = 1,
-              MonthlyCharges                 = 70.70,
-              MultipleLines_No               = 1,
-              MultipleLines_No_phone_service = 0,
-              MultipleLines_Yes              = 0,
-              InternetService_DSL            = 0,
-              InternetService_Fiber_optic    = 1,
-              InternetService_No             = 0,
-              Contract_Month_to_month        = 1,
-              Contract_One.year              = 0,
-              Contract_Two.year              = 0,
-              PaymentMethod_Bank_transfer    = 0,
-              PaymentMethod_Credit_card      = 0,
+              SeniorCitizen = 0,
+              Partner = 1,
+              Dependents = 0,
+              tenure = 36,
+              PaperlessBilling = 1,
+              MonthlyCharges = 80.99,
+              MultipleLines_No = 0,
+              MultipleLines_No_phone_service = 1,
+              MultipleLines_Yes = 0,
+              InternetService_DSL = 1,
+              InternetService_Fiber_optic = 0,
+              InternetService_No = 0,
+              Contract_Month_to_month = 1,
+              Contract_One.year = 0,
+              Contract_Two.year = 0,
+              PaymentMethod_Bank_transfer = 0,
+              PaymentMethod_Credit_card = 0,
               PaymentMethod_Electronic_check = 1,
-              PaymentMethod_Mailed_check     = 0,
-              ServiceSup_No                  = 1,
+              PaymentMethod_Mailed_check = 0,
+              ServiceSup_No = 0,
               ServiceSup_No_internet_service = 0,
-              ServiceSup_Yes                 = 0
+              ServiceSup_Yes = 1
             )
           )
         )

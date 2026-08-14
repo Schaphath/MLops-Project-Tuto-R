@@ -1,11 +1,16 @@
 
+# Auteur : @Madiba
+
+
 ## Librairies 
 library(here)
 library(fastDummies)
 
+
 ## Importation dataset 
 path.churn <- here("data", "process")
 df <- read.csv(paste(path.churn, "churn_modif.csv", sep = "/"))
+
 
 ## Recode la variable Churn 
 df <- df |> 
@@ -26,7 +31,7 @@ RecodeYesNo <- function(data) {
           vec_char <- as.character(.x)
           valeurs_uniques <- na.omit(unique(vec_char))
           
-          # Vérifie si la colonne contient uniquement des valeurs parmi "Yes" et "No"
+          # Vérifie la présence des valeurs "Yes" et "No"
           if (length(valeurs_uniques) > 0 && 
               all(valeurs_uniques %in% c("Yes", "No"))) {
             dplyr::if_else(vec_char == "Yes", 1, 0, missing = NA_real_)
@@ -43,11 +48,9 @@ RecodeYesNo <- function(data) {
 df <- RecodeYesNo(data=df)
 
 
-
 ## Fonction CreateDummies
 CreateDummies <- function(data, variables) {
   colonnes_initiales <- colnames(data)
-  
   data_dummies <- fastDummies::dummy_cols(
     data, select_columns = variables,
     remove_first_dummy = FALSE,
@@ -58,14 +61,15 @@ CreateDummies <- function(data, variables) {
 }
 
 
-## Appliquer la création de dummies 
-ColName <- c("MultipleLines", "InternetService", "Contract", "PaymentMethod", "ServiceSup")
+## Création des variables indicatrices 
+ColName <- c("MultipleLines", "InternetService", "Contract", 
+             "PaymentMethod", "ServiceSup")
+
+## Nouveau Dataset 
 dfNew <- CreateDummies(data=df, variables = ColName)
 
 
-
-## Recoder variables 
-# Rename variables
+## Rename variables
 dfNew <- dfNew |> rename(
   "MultipleLines_No_phone_service" = "MultipleLines_No phone service",
   "ServiceSup_No_internet_service" = "ServiceSup_No internet service",
@@ -79,7 +83,4 @@ dfNew <- dfNew |> rename(
 
 ## Enregistrer dfNew
 write.csv(dfNew, paste(path_df, "dfNew.csv", sep = "/"), row.names = FALSE)
-
-
-
 

@@ -1,11 +1,13 @@
 
-# entrypoint.R
+# Auteur @Madiba
+
+
 library(plumber)
 library(here)
 
 pr <- plumber::pr(here("api", "plumber.R"))
 
 # Lancement du serveur HTTP sur le port 8080
-pr %>% 
+pr |> 
   pr_run(host = "0.0.0.0", port = 8080)
 
