@@ -1,16 +1,21 @@
 
+## Librairies 
 library(here)
 library(fastDummies)
 
-# Importation dataset 
-path_df <- here("data", "process")
-df_model1 <- read.csv(paste(path_df, "df_model1.csv"))
+## Importation dataset 
+path.churn <- here("data", "process")
+df <- read.csv(paste(path.churn, "churn_modif.csv", sep = "/"))
+
+## Recode la variable Churn 
+df <- df |> 
+  mutate(Churn = ifelse(Churn == "Yes", 1, 0))
+
+## Suppression de quelques variables 
+df <- df |> dplyr::select(-c(gender, PhoneService, TotalCharges))
 
 
-
-#============================================================================#
-#  Cette fonction recode les variables binaires du type (yes, no) en (1, 0)  #
-#============================================================================#
+## Foncttion RecodeYesNo
 RecodeYesNo <- function(data) {
   data |> 
     dplyr::mutate(
@@ -22,7 +27,8 @@ RecodeYesNo <- function(data) {
           valeurs_uniques <- na.omit(unique(vec_char))
           
           # Vérifie si la colonne contient uniquement des valeurs parmi "Yes" et "No"
-          if (length(valeurs_uniques) > 0 && all(valeurs_uniques %in% c("Yes", "No"))) {
+          if (length(valeurs_uniques) > 0 && 
+              all(valeurs_uniques %in% c("Yes", "No"))) {
             dplyr::if_else(vec_char == "Yes", 1, 0, missing = NA_real_)
           } else {
             .x
@@ -33,20 +39,18 @@ RecodeYesNo <- function(data) {
 }
 
 
-# Applique le recodage 
-df_model1 <- RecodeYesNo(data=df_model1)
+## Applique le recodage 
+df <- RecodeYesNo(data=df)
 
 
 
-#================================================#
-# Fonction pour la création de variables dummies #
-#================================================#
+## Fonction CreateDummies
 CreateDummies <- function(data, variables) {
   colonnes_initiales <- colnames(data)
   
   data_dummies <- fastDummies::dummy_cols(
     data, select_columns = variables,
-    remove_first_dummy = TRUE,
+    remove_first_dummy = FALSE,
     remove_selected_columns = TRUE
   )
   
@@ -54,13 +58,27 @@ CreateDummies <- function(data, variables) {
 }
 
 
-# Appliquer la création de dummies 
-col_name <- c("Contract", "Aciennete")
-df_model1 <- CreateDummies(data=df_model1, variables = col_name)
+## Appliquer la création de dummies 
+ColName <- c("MultipleLines", "InternetService", "Contract", "PaymentMethod", "ServiceSup")
+dfNew <- CreateDummies(data=df, variables = ColName)
 
 
-# save dataset modifié
-write.csv(df_model1, paste(path_df, "df_model1_modif.csv"), row.names = FALSE)
+
+## Recoder variables 
+# Rename variables
+dfNew <- dfNew |> rename(
+  "MultipleLines_No_phone_service" = "MultipleLines_No phone service",
+  "ServiceSup_No_internet_service" = "ServiceSup_No internet service",
+  "PaymentMethod_Bank_transfer" = "PaymentMethod_Bank transfer (automatic)",
+  "PaymentMethod_Credit_card" = "PaymentMethod_Credit card (automatic)",
+  "PaymentMethod_Electronic_check" = "PaymentMethod_Electronic check",
+  "PaymentMethod_Mailed_check" = "PaymentMethod_Mailed check",
+  "InternetService_Fiber_optic" = "InternetService_Fiber optic", 
+  "Contract_Month_to_month" = "Contract_Month-to-month", 
+)
+
+## Enregistrer dfNew
+write.csv(dfNew, paste(path_df, "dfNew.csv", sep = "/"), row.names = FALSE)
 
 
 

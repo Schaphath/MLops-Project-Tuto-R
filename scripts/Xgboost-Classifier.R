@@ -11,22 +11,22 @@ library(recipes)
 library(pROC)
 library(here)
 
+
 #=============#
 #  Read data  #
 #=============#
-#source("scripts/version2/Read-Data.R")
 
 # Importation dataset 
-path_df <- here("data", "process")
-df <- read.csv(paste(path_df, "df_model1_modif.csv"))
+path.churn <- here("data", "process")
+dfNew <- read.csv(file.path(path.churn, "dfNew.csv"))
 
 #==============#
 #  Split data  #
 #==============#
 set.seed(123)
-train_index <- createDataPartition(df$Churn, p = 0.8, list = FALSE)
-train_data  <- df[ train_index, ]
-test_data   <- df[-train_index, ]
+train_index <- createDataPartition(dfNew$Churn, p = 0.8, list = FALSE)
+train_data  <- dfNewf[train_index, ]
+test_data   <- dfNewf[-train_index, ]
 
 
 
@@ -139,9 +139,8 @@ xgb_model <- xgb.train(
 pred_prob  <- predict(xgb_model, dtest)
 pred_class <- factor(as.integer(pred_prob > 0.5), levels = c(0, 1))
 
-#conf_mat_model1 <- confusionMatrix(pred_class, factor(y_test, levels = c(0,  1)), positive = "1")
-conf_mat_model2 <- confusionMatrix(pred_class, factor(y_test, levels = c(0,  1)), positive = "1")
-
+conf_mat <- confusionMatrix(pred_class, factor(y_test, levels = c(0,  1)), positive = "1")
+conf_mat
 
 roc_obj <- roc(
   response  = y_test,
@@ -174,3 +173,5 @@ model_results_xgb <- list(
 xgb.save(xgb_model, "models/xgb-classifier-model.json")
 saveRDS(colnames(x_train), "models/xgb-model-features.rds")
 saveRDS(preproc, file = "models/preproc-range.rds")
+
+

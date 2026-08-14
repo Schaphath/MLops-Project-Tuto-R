@@ -1,5 +1,6 @@
+
 # Auteur original : @Schaphath-Madiba
-# Correction : Isolation stricte de l'ID_CLIENT + validation robuste avant preproc/predict()
+# Mise à jour : Recette de prétraitement 'recipes' + Seuil de décision optimal réassorti
 
 #=============#
 #   Packages  #
@@ -11,14 +12,21 @@ library(dplyr)
 library(readr)
 library(xgboost)
 library(here)
-library(caret)
+library(recipes)
 
-#=================================#
-#   Chargement du modèle XGBoost  #
-#=================================#
-xgb_model <- xgb.load(here("models", "XGB-Classifier-Model.json"))
-features  <- readRDS(here("models", "XGB-Model-Features.rds"))
-preproc   <- readRDS(here("models", "preproc-range.rds"))
+#=================================================#
+#   Chargement du modèle XGBoost & artefacts      #
+#=================================================#
+xgb_model   <- xgb.load(here("models", "xgb-classifier-model.json"))
+features    <- readRDS(here("models", "XGB-Model-Features.rds"))
+rec_prep    <- readRDS(here("models", "recipe_prep.rds"))
+
+# Chargement du seuil optimal (Youden) s'il existe, sinon fallback à 0.5
+best_thresh <- if (file.exists(here("models", "optimal_threshold.rds"))) {
+  readRDS(here("models", "optimal_threshold.rds"))
+} else {
+  0.5
+}
 
 
 #======#
@@ -51,7 +59,7 @@ ui <- dashboardPage(
     tags$div(
       style = "padding: 10px 20px; color:#666; font-size:11px;",
       tags$p("Modèle : XGBoost v2"),
-      tags$p("Seuil churn : 0.5")
+      tags$p(paste0("Seuil churn : ", round(best_thresh, 4)))
     )
   ),
   
@@ -226,10 +234,10 @@ ui <- dashboardPage(
                   title = "⚙️ Transformation & Standardisation du dataset",
                   status = "info", solidHeader = TRUE, width = 12,
                   tags$p(class = "section-title", "Étape 2 — Mise en forme & Normalisation"),
-                  tags$p("Cliquez sur le bouton pour appliquer la standardisation pré-enregistrée (preproc-range.rds) sur les 20 features.", style = "color:#8b8fa8; font-size:13px; margin-bottom:16px;"),
+                  tags$p("Cliquez sur le bouton pour appliquer la recette pré-enregistrée (recipe_prep.rds) sur les variables.", style = "color:#8b8fa8; font-size:13px; margin-bottom:16px;"),
                   actionButton("transform_btn", label = tags$span(icon("sliders-h"), "  Transformer"),
                                class = "btn-transform"),
-                  helpText("ID_CLIENT est exclu de la standardisation puis réintégré tel quel dans le tableau final.")
+                  helpText("ID_CLIENT est exclu de la transformation puis réintégré tel quel dans le tableau final.")
                 )
               ),
               fluidRow(
@@ -250,7 +258,7 @@ ui <- dashboardPage(
                   title = "🧠 Prédiction XGBoost",
                   status = "warning", solidHeader = TRUE, width = 12,
                   tags$p(class = "section-title", "Étape 3 — Scoring client"),
-                  tags$p("Cliquez sur le bouton pour appliquer le modèle et obtenir les probabilités de churn.", style = "color:#8b8fa8; font-size:13px; margin-bottom:16px;"),
+                  tags$p(paste0("Cliquez sur le bouton pour appliquer le modèle avec le seuil optimal (", round(best_thresh, 4), ")."), style = "color:#8b8fa8; font-size:13px; margin-bottom:16px;"),
                   actionButton("predict_btn", label = tags$span(icon("brain"), "  Lancer la prédiction"),
                                class = "btn-predict"),
                   helpText("ID_CLIENT est exclu de l'appel à predict() puis réassocié aux résultats.")
@@ -269,13 +277,10 @@ ui <- dashboardPage(
 )
 
 
-
 #===========#
-#   SERVER   #
+#   SERVER  #
 #===========#
 
-# Affiche le message d'erreur complet dans l'UI au lieu du message générique
-# sanitisé par défaut par Shiny. Utile pour diagnostiquer les erreurs "silencieuses".
 options(shiny.sanitize.errors = FALSE)
 
 server <- function(input, output, session) {
@@ -295,15 +300,17 @@ server <- function(input, output, session) {
       show_col_types = FALSE
     )
     
-    # --- Validation 1 : présence de ID_CLIENT (ou variante usuelle) ---
+    # --- Gestion dynamique de ID_CLIENT ---
     id_col <- names(df)[tolower(names(df)) %in% c("customerid", "customer_id", "id_client", "id", "client_id")][1]
-    validate(
-      need(!is.na(id_col),
-           "Erreur : le fichier importé ne contient pas de colonne ID_CLIENT.\nVeuillez vérifier votre fichier et réessayer.")
-    )
-    client_id <- df[[id_col]]
     
-    # --- Validation 2 : présence de toutes les features attendues par le modèle ---
+    if (!is.na(id_col)) {
+      client_id <- as.character(df[[id_col]])
+    } else {
+      # Fallback : génération automatique d'ID si absent
+      client_id <- paste0("CLIENT_", seq_len(nrow(df)))
+    }
+    
+    # --- Validation : présence de toutes les features attendues ---
     missing_features <- setdiff(features, names(df))
     validate(
       need(length(missing_features) == 0,
@@ -313,13 +320,13 @@ server <- function(input, output, session) {
            ))
     )
     
-    # --- Sélection STRICTE et RÉORDONNÉE des features (sélection nommée : robuste à l'ordre des colonnes) ---
+    # --- Sélection STRICTE et RÉORDONNÉE ---
     df_features <- df[, features, drop = FALSE]
     
-    # --- Colonnes supplémentaires : signalées, jamais bloquantes ---
-    extra_cols <- setdiff(names(df), c(features, id_col))
+    # --- Colonnes supplémentaires ---
+    extra_cols <- setdiff(names(df), c(features, if (!is.na(id_col)) id_col else character(0)))
     
-    # --- Conversion numérique sécurisée (sans passer par as.factor, qui fausserait les valeurs) ---
+    # --- Conversion numérique sécurisée ---
     for (col in names(df_features)) {
       if (!is.numeric(df_features[[col]])) {
         df_features[[col]] <- suppressWarnings(as.numeric(as.character(df_features[[col]])))
@@ -403,7 +410,7 @@ server <- function(input, output, session) {
   
   
   #-----------------------#
-  #   Onglet Transform    #
+  #    Onglet Transform    #
   #-----------------------#
   transformed_data <- eventReactive(input$transform_btn, {
     
@@ -412,20 +419,15 @@ server <- function(input, output, session) {
     
     res <- raw_data()
     id_vector <- res$id
+    X_raw     <- res$features[, features, drop = FALSE]
     
-    # Double sécurité : on ré-impose l'ordre exact de `features` juste avant preproc
-    X_raw <- res$features[, features, drop = FALSE]
-    
-    # Standardisation Min-Max — appliquée UNIQUEMENT sur les 20 features, jamais sur ID_CLIENT
-    # tryCatch : toute erreur technique (type de colonne, structure inattendue, etc.)
-    # est convertie en message clair au lieu d'être masquée silencieusement par Shiny.
+    # Application de la recette 'recipes' entraînée via bake()
     X_scaled <- tryCatch({
-      predict(preproc, X_raw)
+      bake(rec_prep, new_data = X_raw)
     }, error = function(e) {
       validate(need(FALSE, paste0(
-        "Erreur lors de l'application de la standardisation (preproc) :\n",
-        conditionMessage(e),
-        "\n\nVérifiez que les types de colonnes du fichier importé sont bien numériques."
+        "Erreur lors de l'application de la recette de prétraitement (recipes) :\n",
+        conditionMessage(e)
       )))
     })
     
@@ -455,30 +457,31 @@ server <- function(input, output, session) {
   
   
   #-----------------------#
-  #   Onglet Prediction   #
+  #    Onglet Prediction   #
   #-----------------------#
   prediction_results <- eventReactive(input$predict_btn, {
     
     showNotification("Prédiction en cours...", id = "predict_msg", type = "message", duration = NULL)
     on.exit(removeNotification(id = "predict_msg"), add = TRUE)
     
-    # Exige que les données aient été transformées au préalable
-    df_trans <- transformed_data()
-    
-    # Isolation de l'ID d'un côté et des features (strictement nommées, dans l'ordre de `features`) de l'autre
+    df_trans  <- transformed_data()
     id_vector <- df_trans$ID_CLIENT
+    
+    # Extraction stricte des features dans l'ordre exact attendu par le modèle
     X_matrix  <- as.matrix(df_trans[, features, drop = FALSE])
     
-    # Prédiction XGBoost — ID_CLIENT n'est jamais transmis au modèle
+    # Prédiction XGBoost
     pred_prob <- tryCatch({
-      predict(xgb_model, xgb.DMatrix(data = X_matrix))
+      predict(xgb_model, X_matrix)
     }, error = function(e) {
       validate(need(FALSE, paste0(
         "Erreur lors de l'appel au modèle XGBoost :\n", conditionMessage(e)
       )))
     })
-    pred_class <- ifelse(pred_prob > 0.5, "1", "0")
-    comment    <- ifelse(pred_prob > 0.5,
+    
+    # Utilisation du seuil décisionnel optimal (best_thresh)
+    pred_class <- ifelse(pred_prob >= best_thresh, "1", "0")
+    comment    <- ifelse(pred_prob >= best_thresh,
                          "Client susceptible de churner",
                          "Client peu susceptible de churner")
     
@@ -538,13 +541,11 @@ server <- function(input, output, session) {
       paste0("prediction_churn_", Sys.Date(), ".csv")
     },
     content = function(file) {
-      # Export du data.frame brut (ID_CLIENT, probabilité, classe, commentaire) — pas la version avec badges HTML
       write.csv(prediction_results(), file, row.names = FALSE)
     }
   )
   
 }
-
 
 #================#
 #   LANCER APP   #

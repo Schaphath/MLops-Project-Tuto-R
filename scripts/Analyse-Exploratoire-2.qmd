@@ -22,6 +22,10 @@ editor: visual
 
 ------------------------------------------------------------------------
 
+
+# Schaphath KOUKOUGNON
+
+
 ### `Contexte et Enjeux`
 
 L’objectif de ce projet est de comprendre et d'anticiper le comportement des clients d'une entreprise de télécommunications afin de prédire le risque de résiliation.
@@ -520,15 +524,6 @@ khi2_test <- function(data, target) {
 
 ```
 
-```{r}
-# col_transforme <- churn |> select(- Churn) |> colnames()
-# 
-# for (variable in col_transforme) {
-#   
-#   churn[[variable]] <- as.factor(churn[[variable]])
-# }
-
-```
 
 ```{r, message=FALSE, warning=FALSE}
 #| label: generation-graphiques
@@ -601,62 +596,6 @@ MannWhitney_test(churn, "Churn")
 
 ```
 
----
-
-```{r}
-churn <- churn |> 
-  mutate(Churn = ifelse(Churn == "Yes", 1, 0))
-
-```
-
-```{r}
-# Suppression de quelques variables 
-churn <- churn |> dplyr::select(-c(gender, TotalCharges))
-
-```
-
-```{r}
-# 
-model <- glm(Churn ~ ., data = churn, family = "binomial")
-summary(model) 
-
-#> Ici on a toutes les variables de notre jeu de données 
-#> Null deviance: 8143.4
-#> Residual deviance:  5907.6
-#> AIC: 5941.6
-
-```
-
-
-```{r}
-# Collinéarité
-library(performance)
-
-check_collinearity(model)
-
-```
-
-```{r}
-# Performance 
-library(performance)
-
-performance::check_model(model)
-
-```
-
-```{r}
-# Performance modèle 
-performance::model_performance(model)
-
-```
-
-```{r}
-#save dataset 
-path_save <- here::here("data", "process")
-write.csv(churn, paste(path_save, "df_model1.csv"), row.names = FALSE)
-
-```
-
 
 ------------------------------------------------------------------------
 
@@ -673,6 +612,7 @@ L'analyse des profils de résiliation révèle des signaux faibles et des tendan
   - *Vision Business :* ce segment est souvent plus sensible aux augmentations de tarifs ou peut faire face à des difficultés avec les services purement digitaux.
 
   - *Action :* mettre en place un canal d'assistance téléphonique prioritaire et concevoir des offres de fidélisation simplifiées et stables pour ce public.
+
 
 - **L'Absence de personnes à Charge :**
 
@@ -718,111 +658,12 @@ Un client **sénior**, vivant **seul**, équipé de la **fibre optique**, sous u
 
 ------------------------------------------------------------------------
 
-```{r}
-# Variable tenure en années 
- # churn <- churn %>%
- #   mutate(
- #     AnneeFidelite = cut(
- #       tenure,
- #       breaks = c(0, 12, 24, 36, 72),
- #       labels = c("1 an", "2 ans", "3 ans", "4 ans"),
- #       right = TRUE,
- #       include.lowest = TRUE
- #     )
- #   )
-
-```
-
-```{r, message=FALSE, warning=FALSE}
-
-
-
-```
 
 ```{r}
-# variables dummies 
-# var_names <- churn |> select(7:15, 17) |> colnames() 
-
-```
-
-```{r}
-
-# Normalisation des variables numériques
-# NormaliserMinMax <- function(data) {
-#   data |>
-#     dplyr::mutate(
-#       across(
-#         where(is.numeric),
-#         ~ {
-#           # Calcul du minimum et du maximum en ignorant les NA
-#           val_min <- min(.x, na.rm = TRUE)
-#           val_max <- max(.x, na.rm = TRUE)
-# 
-#           # Application de la formule
-#           round((.x - val_min) / (val_max - val_min), 3)
-#         }
-#       )
-#     )
-# }
-# 
-# # Exemple d'utilisation :
-# churn <- NormaliserMinMax(churn)
-
-```
-
-```{r, message=FALSE, warning=FALSE}
-# Rename variables
-churn <- churn |> rename(
-  "MultipleLines_No_phone_service" = "MultipleLines_No phone service",
-  "ServiceSup_No_internet_service" = "ServiceSup_No internet service",
-  "PaymentMethod_Bank_transfer" = "PaymentMethod_Bank transfer (automatic)",
-  "PaymentMethod_Credit_card" = "PaymentMethod_Credit card (automatic)",
-  "PaymentMethod_Electronic_check" = "PaymentMethod_Electronic check",
-  "PaymentMethod_Mailed_check" = "PaymentMethod_Mailed check",
-  "InternetService_Fiber_optic" = "InternetService_Fiber optic"
-)
-
-```
-
-### Sélection de variable avec l'algorithme de Boruta"
-
-```{r}
-library(Boruta)
-
-set.seed(111)
-boruta_churn <- Boruta(Churn ~ ., data = churn, doTrace = 2)
-print(boruta_churn)
-
-```
-
-```{r}
-# Trancher automatiquement les variables incertaines
-boruta_final <- TentativeRoughFix(boruta_churn)
-print(boruta_final)
-
-```
-
-```{r}
-# Récupérer la liste exacte des variables retenues
-selected_features <- getSelectedAttributes(boruta_final, 
-                                           withTentative = FALSE)
-
-print(selected_features)
-
-```
-
-```{r}
-# Obtenir les noms des colonnes confirmées
-final_vars <- c(getSelectedAttributes(boruta_final), "Churn")
-
-# Filtrer le dataset
-churn_reduced <- churn[, final_vars]
-
-```
-
-```{r}
-# Exporter le fichier CSV 
+#save dataset 
 path_save <- here::here("data", "process")
-write.csv(churn_reduced, paste(path_save, "churn_cleaned2.csv",
-                                    sep = "/"), row.names = FALSE)
+write.csv(churn, paste(path_save, "churn_modif.csv", sep = "/"),
+          row.names = FALSE)
+
 ```
+
