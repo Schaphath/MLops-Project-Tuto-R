@@ -1,0 +1,56 @@
+
+name: CI/CD - Build and Push Docker Images to Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'api/**'
+      - 'shiny/**'
+      - '.github/workflows/deploy-docker.yml'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Récupération du code source
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Connexion à Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 3. Configuration de Docker Buildx (pour un build optimisé)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 4. Build et Push de l'image API Plumber
+      - name: Build and push Plumber API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:${{ github.sha }}
+
+      # 5. Build et Push de l'image R Shiny
+      - name: Build and push Shiny App image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./shiny
+          file: ./shiny/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:${{ github.sha }}
+            
+            
+            
