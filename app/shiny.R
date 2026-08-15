@@ -1,0 +1,350 @@
+# Auteur : Madiba
+# Shiny UI Client -> API Plumber (Fix blocage API + Espacement formulaire)
+
+library(shiny)
+library(bslib)
+library(DT)
+library(dplyr)
+library(httr2)
+library(jsonlite)
+
+# Récupération de l'URL depuis les variables d'environnement
+#API_URL <- Sys.getenv("API_URL", unset = "http://127.0.0.1:8080")
+api_url <- Sys.getenv("API_URL", unset = "http://api:8000")
+
+#=================================================#
+#                   INTERFACE UI                  #
+#=================================================#
+ui <- fluidPage(
+  title = "Telco Churn AI - Côte d'Ivoire",
+  
+  tags$head(
+    tags$style(HTML("
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@600&display=swap');
+      
+      body {
+        background-color: #f8fafc !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        color: #1e293b;
+        padding-bottom: 50px;
+      }
+      
+      /* En-tête principal Orange CI & Vert subtil */
+      .app-header {
+        background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+        color: #ffffff;
+        padding: 22px 0;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 15px rgba(234, 88, 12, 0.2);
+        border-bottom: 4px solid #16a34a;
+      }
+      
+      .app-title {
+        font-size: 22px;
+        font-weight: 700;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+      }
+
+      .main-container {
+        max-width: 920px;
+        margin: 0 auto;
+      }
+
+      .custom-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 28px 24px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+      }
+
+      .card-subtitle {
+        font-size: 13px;
+        font-weight: 700;
+        color: #ea580c;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #ffedd5;
+        padding-bottom: 8px;
+      }
+
+      /* Formulaires aérés */
+      label {
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        color: #475569 !important;
+        margin-bottom: 8px !important; /* Espacement label-champ */
+      }
+      
+      .form-control, .selectize-input {
+        font-size: 13px !important;
+        border-radius: 8px !important;
+        border: 1px solid #cbd5e1 !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        padding: 8px 12px !important;
+      }
+      
+      .form-group {
+        margin-bottom: 22px !important; /* Espacement vertical entre les champs */
+      }
+
+      /* Petit bouton Orange ajusté */
+      .btn-predict {
+        background: #f97316 !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 3px 10px rgba(249, 115, 22, 0.3) !important;
+      }
+      
+      .btn-predict:hover {
+        background: #ea580c !important;
+        transform: translateY(-1px);
+      }
+
+      /* Alertes & Résultats */
+      .results-container {
+        background: #ffffff;
+        border: 2px solid #16a34a;
+        border-radius: 12px;
+        padding: 22px;
+        margin-top: 25px;
+        box-shadow: 0 4px 12px rgba(22, 163, 74, 0.08);
+      }
+
+      .metric-box {
+        text-align: center;
+        padding: 16px;
+        background: #f0fdf4;
+        border-radius: 8px;
+        border: 1px solid #dcfce7;
+      }
+
+      .metric-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #15803d;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .metric-value {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 28px;
+        font-weight: 700;
+        color: #ea580c;
+        margin-top: 4px;
+      }
+
+      .badge-churn {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+        padding: 6px 18px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+      }
+      
+      .badge-nochurn {
+        background: #f0fdf4;
+        color: #16a34a;
+        border: 1px solid #bbf7d0;
+        padding: 6px 18px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+      }
+    "))
+  ),
+  
+  # Banner En-tête
+  div(class = "app-header",
+      div(class = "app-title",
+          tags$img(src = "https://img.icons8.com/fluency/28/artificial-intelligence.png"),
+          "Inférence Churn Client - XGBoost API"
+      )
+  ),
+  
+  # Formulaire centré
+  div(class = "main-container",
+      
+      div(class = "custom-card",
+          
+          fluidRow(
+            # Colonne 1 : Profil & Démographie
+            column(6,
+                   div(class = "card-subtitle", "1. Profil & Facturation"),
+                   fluidRow(
+                     column(6, selectInput("SeniorCitizen", "Senior (> 65 ans)", choices = c("Non" = 0, "Oui" = 1), selected = 0)),
+                     column(6, selectInput("Partner", "En couple", choices = c("Oui" = 1, "Non" = 0), selected = 1))
+                   ),
+                   fluidRow(
+                     column(6, selectInput("Dependents", "A charge", choices = c("Non" = 0, "Oui" = 1), selected = 0)),
+                     column(6, selectInput("PaperlessBilling", "Facture en ligne", choices = c("Oui" = 1, "Non" = 0), selected = 1))
+                   ),
+                   fluidRow(
+                     column(6, numericInput("tenure", "Ancienneté (mois)", value = 1, min = 0, max = 100)),
+                     column(6, numericInput("MonthlyCharges", "Montant Mensuel (€)", value = 29.85, min = 0, step = 0.5))
+                   )
+            ),
+            
+            # Colonne 2 : Offres & Abonnements
+            column(6,
+                   div(class = "card-subtitle", "2. Offres & Options"),
+                   selectInput("MultipleLines", "Lignes multiples", 
+                               choices = c("Non" = "No", "Sans service tel." = "No_phone_service", "Oui" = "Yes"), 
+                               selected = "No_phone_service"),
+                   selectInput("InternetService", "Fournisseur Internet", 
+                               choices = c("DSL" = "DSL", "Fibre optique" = "Fiber_optic", "Aucun" = "No"), 
+                               selected = "DSL"),
+                   selectInput("Contract", "Type de Contrat", 
+                               choices = c("Mois par mois" = "Month_to_month", "1 An" = "One.year", "2 Ans" = "Two.year"), 
+                               selected = "Month_to_month"),
+                   selectInput("PaymentMethod", "Mode de Paiement", 
+                               choices = c("Chèque électronique" = "Electronic_check", "Virement" = "Bank_transfer", 
+                                           "Carte bancaire" = "Credit_card", "Chèque postal" = "Mailed_check"), 
+                               selected = "Electronic_check"),
+                   selectInput("ServiceSup", "Support / Services Sup.", 
+                               choices = c("Non" = "No", "Pas d'internet" = "No_internet_service", "Oui" = "Yes"), 
+                               selected = "Yes")
+            )
+          ),
+          
+          # Bouton soumission centré
+          div(style = "text-align: center; margin-top: 10px;",
+              actionButton("predict_btn", label = "Lancer la prédiction", class = "btn-predict", icon = icon("paper-plane"))
+          )
+      ),
+      
+      # Affichage conditionnel des résultats (Strictement bloqué si API fermée)
+      uiOutput("results_ui")
+  )
+)
+
+#=================================================#
+#                  LOGIQUE SERVER                 #
+#=================================================#
+server <- function(input, output, session) {
+  
+  formatted_payload <- eventReactive(input$predict_btn, {
+    data.frame(
+      customerID = paste0("CLI-", sample(10000:99999, 1)),
+      SeniorCitizen = as.numeric(input$SeniorCitizen),
+      Partner = as.numeric(input$Partner),
+      Dependents = as.numeric(input$Dependents),
+      tenure = as.numeric(input$tenure),
+      PaperlessBilling = as.numeric(input$PaperlessBilling),
+      MonthlyCharges = as.numeric(input$MonthlyCharges),
+      
+      MultipleLines_No = ifelse(input$MultipleLines == "No", 1, 0),
+      MultipleLines_No_phone_service = ifelse(input$MultipleLines == "No_phone_service", 1, 0),
+      MultipleLines_Yes = ifelse(input$MultipleLines == "Yes", 1, 0),
+      
+      InternetService_DSL = ifelse(input$InternetService == "DSL", 1, 0),
+      InternetService_Fiber_optic = ifelse(input$InternetService == "Fiber_optic", 1, 0),
+      InternetService_No = ifelse(input$InternetService == "No", 1, 0),
+      
+      Contract_Month_to_month = ifelse(input$Contract == "Month_to_month", 1, 0),
+      Contract_One.year = ifelse(input$Contract == "One.year", 1, 0),
+      Contract_Two.year = ifelse(input$Contract == "Two.year", 1, 0),
+      
+      PaymentMethod_Bank_transfer = ifelse(input$PaymentMethod == "Bank_transfer", 1, 0),
+      PaymentMethod_Credit_card = ifelse(input$PaymentMethod == "Credit_card", 1, 0),
+      PaymentMethod_Electronic_check = ifelse(input$PaymentMethod == "Electronic_check", 1, 0),
+      PaymentMethod_Mailed_check = ifelse(input$PaymentMethod == "Mailed_check", 1, 0),
+      
+      ServiceSup_No = ifelse(input$ServiceSup == "No", 1, 0),
+      ServiceSup_No_internet_service = ifelse(input$ServiceSup == "No_internet_service", 1, 0),
+      ServiceSup_Yes = ifelse(input$ServiceSup == "Yes", 1, 0),
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  # Requête REST avec retour NULL explicite si l'API est absente
+  api_response <- eventReactive(input$predict_btn, {
+    req(formatted_payload())
+    
+    # 1. Test de socket local sur le port 8080
+    api_online <- tryCatch({
+      con <- socketConnection(host = "127.0.0.1", port = 8080, timeout = 1)
+      close(con)
+      TRUE
+    }, error = function(e) {
+      FALSE
+    })
+    
+    if (!api_online) {
+      showNotification("Erreur : L'API Plumber n'est pas démarrée sur http://127.0.0.1:8080", type = "error", duration = 5)
+      return(NULL) # Annulation complète de la réponse
+    }
+    
+    # 2. Exécution de la requête HTTP
+    df <- formatted_payload()
+    
+    tryCatch({
+      json_data <- toJSON(df, auto_unbox = TRUE)
+      
+      req_obj <- request(paste0(API_URL, "/predict")) %>%
+        req_headers("Content-Type" = "application/json") %>%
+        req_body_raw(json_data, type = "application/json") %>%
+        req_timeout(3) %>%
+        req_perform()
+      
+      resp_body_string(req_obj) %>% fromJSON()
+      
+    }, error = function(e) {
+      showNotification(paste0("Erreur de prédiction : ", conditionMessage(e)), type = "error", duration = 5)
+      return(NULL)
+    })
+  })
+  
+  # Rendu de l'UI de résultat
+  output$results_ui <- renderUI({
+    res <- api_response()
+    
+    # Si l'API renvoie NULL (hors ligne ou erreur), on masque le bloc de résultats
+    if (is.null(res)) {
+      return(NULL)
+    }
+    
+    proba_val <- if("churn_proba" %in% names(res)) res$churn_proba else res[[1]]
+    decision_val <- if("decision" %in% names(res)) res$decision else ifelse(proba_val > 0.5, "Churn", "Fidèle")
+    
+    proba_pct <- round(as.numeric(proba_val) * 100, 2)
+    is_churn <- decision_val == "Churn"
+    
+    div(class = "results-container",
+        fluidRow(
+          column(6,
+                 div(class = "metric-box",
+                     div(class = "metric-label", "Probabilité de Churn"),
+                     div(class = "metric-value", paste0(proba_pct, " %"))
+                 )
+          ),
+          column(6,
+                 div(class = "metric-box",
+                     div(class = "metric-label", "Décision du Modèle"),
+                     div(style = "margin-top: 8px;",
+                         span(class = if(is_churn) "badge-churn" else "badge-nochurn", decision_val)
+                     )
+                 )
+          )
+        )
+    )
+  })
+}
+
+shinyApp(ui = ui, server = server)

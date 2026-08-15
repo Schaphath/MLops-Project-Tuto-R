@@ -1,6 +1,7 @@
-# Auteur @Madiba
-
-# API REST Plumber pour scoring Churn XGBoost
+# ============================================================================== #
+# API REST Plumber pour scoring Churn XGBoost (Propre & Validée - Sans Clé API)  #
+# Auteur : Madiba                                                                #
+# ============================================================================== #
 
 library(plumber)
 library(jsonlite)
@@ -8,19 +9,16 @@ library(dplyr)
 library(xgboost)
 library(recipes)
 
-# =================================================#
-# 1. Chargement global des artefacts (Warm-up)     #
-# =================================================#
-# On utilise getwd() (défini par WORKDIR /app dans le Dockerfile) plutôt que
-# here::here(), car here() repose sur des heuristiques (.Rproj, .git,
-# DESCRIPTION...) absentes d'une image Docker minimale et peut se montrer
-# imprévisible.
+# ============================================================================== #
+# 1. Chargement global des artefacts (Warm-up au démarrage)                     #
+# ============================================================================== #
+
 app_root <- getwd()
 models_dir <- file.path(app_root, "models")
 
-xgb_model <- xgb.load(file.path(models_dir, "xgb-classifier-model.json"))
-features  <- readRDS(file.path(models_dir, "xgb-model-features.rds"))
-rec_prep  <- readRDS(file.path(models_dir, "recipe_prep.rds"))
+xgb_model <- tryCatch(xgb.load(file.path(models_dir, "xgb-classifier-model.json")), error = function(e) NULL)
+features  <- tryCatch(readRDS(file.path(models_dir, "xgb-model-features.rds")), error = function(e) NULL)
+rec_prep  <- tryCatch(readRDS(file.path(models_dir, "recipe_prep.rds")), error = function(e) NULL)
 
 best_thresh <- if (file.exists(file.path(models_dir, "optimal_threshold.rds"))) {
   readRDS(file.path(models_dir, "optimal_threshold.rds"))
@@ -28,22 +26,21 @@ best_thresh <- if (file.exists(file.path(models_dir, "optimal_threshold.rds"))) 
   0.5
 }
 
-# Colonnes brutes minimales attendues en entrée (avant bake()).
-# A adapter précisément à votre recette si besoin.
 required_raw_cols <- c("tenure", "MonthlyCharges")
 
-#* @apiTitle XGBoost Churn Prediction API
-#* @apiDescription API d'inférence avec normalisation automatique de tenure et MonthlyCharges.
-#* @apiVersion 1.0.0
+#* @apiTitle XGBoost Churn Prediction API (Secure Demo)
+#* @apiDescription API de scoring avec validation rigoureuse des données d'entrée.
+#* @apiVersion 1.2.0
 
-# ================================================= #
-# Filtre CORS (nécessaire si appel depuis un navigateur / frontend web)
-# ================================================= #
+# ============================================================================== #
+# 2. Filtre CORS                                                                #
+# ============================================================================== #
+
 #* @filter cors
 function(req, res) {
   res$setHeader("Access-Control-Allow-Origin", "*")
   if (req$REQUEST_METHOD == "OPTIONS") {
-    res$setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    res$setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     res$setHeader("Access-Control-Allow-Headers", "Content-Type")
     res$status <- 200
     return(list())
@@ -52,86 +49,104 @@ function(req, res) {
   }
 }
 
-# ================================================= #
-# Endpoint : Health Check                           #
-# ================================================= #
+# ============================================================================== #
+# 3. Endpoint : Health Check (Robuste pour Docker / K8s)                        #
+# ============================================================================== #
+
+#* Vérifier l'état de santé du service et la disponibilité des modèles
 #* @get /health
 #* @serializer json
 function(res) {
+  is_healthy <- !is.null(xgb_model) && !is.null(rec_prep) && !is.null(features)
+  
+  if (!is_healthy) {
+    res$status <- 503 # Service Unavailable
+    return(list(
+      status = "unhealthy",
+      timestamp = Sys.time(),
+      error = "Artefacts ML non chargés ou corrompus."
+    ))
+  }
+  
+  res$status <- 200
   list(
     status = "healthy",
     timestamp = Sys.time(),
-    model_loaded = !is.null(xgb_model),
+    model_loaded = TRUE,
     features_count = length(features),
     decision_thresh = best_thresh
   )
 }
 
-# ================================================= #
-# Endpoint : Scoring Client                         #
-# ================================================= #
-#* Prédiction de Churn pour un ou plusieurs clients
+# ============================================================================== #
+# 4. Endpoint : Scoring Client avec Validation & Bornes                         #
+# ============================================================================== #
+
+#* Prédiction du Churn avec contrôle strict des données d'entrée
 #* @parser json
 #* @post /predict
 #* @serializer json
-#* @param req:object Payload JSON contenant les variables brutes et dummifiées.
 function(req, res) {
   
-  # 1. Parsing sécurisé du body JSON.
-  # IMPORTANT: le handler d'erreur renvoie NULL (et non une liste "error=..."),
-  # afin que le test `is.null(body_data)` ci-dessous puisse réellement
-  # intercepter le cas d'échec et stopper le traitement avec un 400 propre.
+  # A. Parsing du body JSON
   body_data <- tryCatch({
     if (is.character(req$postBody)) {
       fromJSON(req$postBody)
     } else {
       req$args$body
     }
-  }, error = function(e) {
-    NULL
-  })
+  }, error = function(e) NULL)
   
   if (is.null(body_data) || length(body_data) == 0) {
     res$status <- 400
-    return(list(error = "JSON invalide ou corps de requête vide."))
+    return(list(error = "Bad Request", message = "JSON invalide ou corps de requête vide."))
   }
   
-  df_input <- tryCatch({
-    as.data.frame(body_data)
-  }, error = function(e) {
-    NULL
-  })
+  df_input <- tryCatch(as.data.frame(body_data), error = function(e) NULL)
   
   if (is.null(df_input) || nrow(df_input) == 0) {
     res$status <- 400
-    return(list(error = "Impossible d'interpréter le payload comme un tableau d'observations."))
+    return(list(error = "Bad Request", message = "Impossible d'interpréter le payload comme un tableau d'observations."))
   }
   
-  # 2. Validation des colonnes brutes minimales attendues avant bake()
+  # B. Validation de la présence des colonnes obligatoires minimales
   missing_raw <- setdiff(required_raw_cols, names(df_input))
   if (length(missing_raw) > 0) {
     res$status <- 400
     return(list(
-      error = "Colonnes obligatoires manquantes dans le payload.",
+      error = "Bad Request",
+      message = "Colonnes obligatoires manquantes dans le payload.",
       missing_columns = missing_raw
     ))
   }
   
-  # 3. Identification / Génération de ID_CLIENT
-  id_col <- names(df_input)[tolower(names(df_input)) %in% c("customerid", "customer_id", "id_client", "id", "client_id")][1]
-  
-  if (!is.na(id_col)) {
-    client_ids <- as.character(df_input[[id_col]])
-  } else {
-    client_ids <- paste0("CLIENT_", seq_len(nrow(df_input)))
+  # C. Validation des types et des bornes (Contrôle métier)
+  if (any(!is.numeric(df_input$tenure) | df_input$tenure < 0, na.rm = TRUE)) {
+    res$status <- 400
+    return(list(
+      error = "Bad Request",
+      message = "Validation échouée : la variable 'tenure' doit être un nombre positif ou nul (>= 0)."
+    ))
   }
   
+  if (any(!is.numeric(df_input$MonthlyCharges) | df_input$MonthlyCharges < 0, na.rm = TRUE)) {
+    res$status <- 400
+    return(list(
+      error = "Bad Request",
+      message = "Validation échouée : la variable 'MonthlyCharges' doit être un nombre positif ou nul (>= 0)."
+    ))
+  }
+  
+  # D. Gestion des ID clients
+  id_col <- names(df_input)[tolower(names(df_input)) %in% c("customerid", "customer_id", "id_client", "id", "client_id")][1]
+  client_ids <- if (!is.na(id_col)) as.character(df_input[[id_col]]) else paste0("CLIENT_", seq_len(nrow(df_input)))
+  
+  # E. Pipeline de prédiction sécurisé
   tryCatch({
-    # 4. Application de la recette (Scaling sur tenure & MonthlyCharges)
-    # bake() applique la transformation enregistrée dans recipe_prep.rds
+    # Application de la recette
     df_transformed <- bake(rec_prep, new_data = df_input)
     
-    # 5. Complétion automatique si une colonne manque
+    # Alignement des features
     missing_feats <- setdiff(features, names(df_transformed))
     if (length(missing_feats) > 0) {
       for (col in missing_feats) {
@@ -139,44 +154,44 @@ function(req, res) {
       }
     }
     
-    # 6. Extraction de la matrice numérique alignée sur les features attendues
     X_matrix <- as.matrix(df_transformed[, features, drop = FALSE])
     storage.mode(X_matrix) <- "numeric"
     X_matrix[is.na(X_matrix)] <- 0
     
-    # 7. Inférence XGBoost
+    # Inférence XGBoost
     pred_probs <- predict(xgb_model, X_matrix)
     pred_class <- ifelse(pred_probs >= best_thresh, 1, 0)
     
-    # 8. Résultat
-    results <- data.frame(
+    res$status <- 200
+    return(data.frame(
       id_client = client_ids,
       churn_proba = round(pred_probs, 4),
       churn_class = pred_class,
       decision = ifelse(pred_class == 1, "Churn", "Non Churn"),
       stringsAsFactors = FALSE
-    )
-    
-    res$status <- 200
-    return(results)
+    ))
     
   }, error = function(e) {
+    # Log interne pour debug sans exposer les détails techniques au client
+    message(sprintf("[ERROR] %s - Erreur d'inférence : %s", Sys.time(), conditionMessage(e)))
+    
     res$status <- 500
     return(list(
-      error = "Erreur lors du traitement des données ou de la prédiction.",
-      details = conditionMessage(e)
+      error = "Internal Server Error",
+      message = "Une erreur est survenue lors du traitement des données ou de la prédiction."
     ))
   })
 }
 
-# ================================================= #
-# 3. Injection des données exactes dans Swagger UI #
-# ================================================= #
+# ============================================================================== #
+# 5. Injection de la documentation Swagger                                      #
+# ============================================================================== #
+
 #* @plumber
 function(pr) {
   pr$setApiSpec(function(spec) {
     spec$paths$`/predict`$post$requestBody <- list(
-      description = "Saisissez les données clients (tenure et MonthlyCharges non transformées).",
+      description = "Tableau JSON d'observations clients avec validation des bornes.",
       required = TRUE,
       content = list(
         `application/json` = list(
@@ -186,33 +201,9 @@ function(pr) {
               SeniorCitizen = 0,
               Partner = 1,
               Dependents = 0,
-              tenure = 12,
+              tenure = 1,
               PaperlessBilling = 1,
               MonthlyCharges = 29.85,
-              MultipleLines_No = 0,
-              MultipleLines_No_phone_service = 1,
-              MultipleLines_Yes = 0,
-              InternetService_DSL = 1,
-              InternetService_Fiber_optic = 0,
-              InternetService_No = 0,
-              Contract_Month_to_month = 1,
-              Contract_One.year = 0,
-              Contract_Two.year = 0,
-              PaymentMethod_Bank_transfer = 0,
-              PaymentMethod_Credit_card = 0,
-              PaymentMethod_Electronic_check = 1,
-              PaymentMethod_Mailed_check = 0,
-              ServiceSup_No = 0,
-              ServiceSup_No_internet_service = 0,
-              ServiceSup_Yes = 1
-            ),
-            list(
-              SeniorCitizen = 0,
-              Partner = 1,
-              Dependents = 0,
-              tenure = 36,
-              PaperlessBilling = 1,
-              MonthlyCharges = 80.99,
               MultipleLines_No = 0,
               MultipleLines_No_phone_service = 1,
               MultipleLines_Yes = 0,

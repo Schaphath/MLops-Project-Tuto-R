@@ -1,23 +1,64 @@
-
-version: '3.8'
-
 services:
+
+  # ============================================================ #
+  # API de scoring Churn (Plumber + XGBoost)                     #
+  # ============================================================ #
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
-    container_name: xgb_plumber_api
-    ports:
-      - "8080:8080"
-    restart: always
+    container_name: churn-api
+    restart: unless-stopped
+    # Le port n'est PAS publié sur l'hôte : l'API n'a pas d'authentification
+    # (voir la documentation technique), elle ne doit donc être joignable
+    # que depuis le réseau interne Docker, pas depuis l'extérieur.
+    # -> décommentez "ports" ci-dessous uniquement pour du debug local
+    #    (Postman, Swagger UI) et retirez-le avant toute mise en prod.
+    # ports:
+    #   - "8080:8080"
+    expose:
+      - "8080"
+    networks:
+      - churn-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
+  # ============================================================ #
+  # Interface Shiny (consomme l'API via HTTP)                    #
+  # ============================================================ #
   shiny:
     build:
-      context: ./shiny
+      context: ./app
       dockerfile: Dockerfile
-    container_name: xgb_shiny_app
+    container_name: churn-shiny
+    restart: unless-stopped
     ports:
       - "3838:3838"
+    environment:
+      # Surcharge la valeur par défaut (127.0.0.1) définie dans le Dockerfile :
+      # "api" est résolu automatiquement par Docker Compose vers l'IP interne
+      # du service ci-dessus, sur le réseau "churn-net".
+      API_URL: "http://api:8080"
+    networks:
+      - churn-net
     depends_on:
-      - api
-    restart: always
+      # Attend que l'API soit réellement "healthy" (pas juste démarrée)
+      # avant de lancer Shiny, pour éviter une erreur de connexion au
+      # premier appel si l'app fait un health-check au démarrage.
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3838/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+networks:
+  churn-net:
+    driver: bridge
+    
