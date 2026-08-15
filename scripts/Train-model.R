@@ -25,47 +25,58 @@ path.churn <- here::here("data", "process")
 dfNew <- read.csv(paste(path.churn, "dfNew.csv", sep = "/"), header = T)
 
 
-# # Assure que Churn est bien binaire (0 / 1)
-# dfNew$Churn <- as.numeric(as.character(dfNew$Churn))
-
 
 #==============#
 #  Split data  #
 #==============#
-set.seed(123)
-train_index <- createDataPartition(dfNew$Churn, p = 0.8, list = FALSE)
-train_data  <- dfNew[ train_index, ]
-test_data   <- dfNew[-train_index, ]
 
+library(recipes)
+library(caret)
+library(xgboost)
 
-#======================================#
-# Preprocessing & One-Hot Encoding      #
-#======================================#
-rec <- recipe(Churn ~ ., data = train_data) |>
-  step_zv(all_predictors()) |> 
-  step_range(all_numeric_predictors()) 
-
-rec_prep <- prep(rec, training = train_data)
-
-
-# Application sur Train et Test
-x_train_df <- bake(rec_prep, new_data = NULL) |> select(-Churn)
-x_test_df  <- bake(rec_prep, new_data = test_data) |> select(-Churn)
-
-y_train <- train_data$Churn
-y_test  <- test_data$Churn
-
-
-# Extraction nom feature
-features <- colnames(x_train_df)
-
-
-# Construction des matrices numériques pour XGBoost
-x_train <- as.matrix(x_train_df)
-x_test  <- as.matrix(x_test_df)
-
-dtrain <- xgb.DMatrix(data = x_train, label = y_train)
-dtest  <- xgb.DMatrix(data = x_test,  label = y_test)
+SplitData <- function(data, target_var, prop = 0.8, seed = 123, to_global_env = TRUE) {
+  
+  set.seed(seed)
+  
+  if (!target_var %in% names(data)) {
+    stop(paste("La colonne target", target_var, "est introuvable."))
+  }
+  
+  train_index <- createDataPartition(data[[target_var]], p = prop, list = FALSE)
+  train_data  <- data[train_index, ]
+  test_data   <- data[-train_index, ]
+  
+  rec_formula <- as.formula(paste(target_var, "~ ."))
+  
+  rec <- recipe(rec_formula, data = train_data) |>
+    step_zv(all_predictors()) |> 
+    step_range(all_numeric_predictors())
+  
+  rec_prep <- prep(rec, training = train_data)
+  
+  train_processed <- bake(rec_prep, new_data = NULL)
+  test_processed  <- bake(rec_prep, new_data = test_data)
+  
+  x_train_df <- train_processed[, setdiff(names(train_processed), target_var)]
+  x_test_df  <- test_processed[,  setdiff(names(test_processed),  target_var)]
+  
+  out_list <- list(
+    features = colnames(x_train_df),
+    dtrain   = xgb.DMatrix(data = as.matrix(x_train_df), label = train_processed[[target_var]]),
+    dtest    = xgb.DMatrix(data = as.matrix(x_test_df),  label = test_processed[[target_var]]),
+    rec_prep = rec_prep,
+    y_train  = train_processed[[target_var]],
+    y_test   = test_processed[[target_var]]
+  )
+  
+  # Export automatique vers l'environnement global si activé
+  if (to_global_env) {
+    list2env(out_list, envir = .GlobalEnv)
+    message("Les objets (features, dtrain, dtest, rec_prep, y_train, y_test) ont été ajoutés à l'environnement global.")
+  }
+  
+  return(invisible(out_list))
+}
 
 
 #======================================#
@@ -78,9 +89,9 @@ scale_pos <- sum(y_train == 0) / sum(y_train == 1)
 #  Cross Validation  #
 #====================#
 grid <- expand.grid(
-  max_depth        = c(3, 5, 7),
-  eta              = c(0.01, 0.05, 0.1),
-  subsample        = c(0.7, 0.9),
+  max_depth = c(3, 5, 7),
+  eta = c(0.01, 0.05, 0.1),
+  subsample = c(0.7, 0.9),
   colsample_bytree = c(0.7, 0.9)
 )
 
@@ -101,12 +112,12 @@ for (i in seq_len(nrow(grid))) {
   
   set.seed(123)
   cv <- xgb.cv(
-    params                = params_i, 
-    data                  = dtrain,
-    nrounds               = 500, 
-    nfold                 = 5,
+    params = params_i, 
+    data = dtrain,
+    nrounds = 500, 
+    nfold = 5,
     early_stopping_rounds = 20,
-    verbose               = 0
+    verbose = 0
   )
   
   # Extraction robuste du meilleur tour et du meilleur AUC

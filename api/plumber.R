@@ -1,5 +1,3 @@
-
-
 # Auteur @Madiba
 
 # API REST Plumber pour scoring Churn XGBoost
@@ -7,37 +5,58 @@
 library(plumber)
 library(jsonlite)
 library(dplyr)
-library(readr)
 library(xgboost)
 library(recipes)
-library(here)
-
 
 # =================================================#
 # 1. Chargement global des artefacts (Warm-up)     #
 # =================================================#
-xgb_model <- xgb.load(here("models", "xgb-classifier-model.json"))
-features <- readRDS(here("models", "XGB-Model-Features.rds"))
-rec_prep <- readRDS(here("models", "recipe_prep.rds"))
+# On utilise getwd() (défini par WORKDIR /app dans le Dockerfile) plutôt que
+# here::here(), car here() repose sur des heuristiques (.Rproj, .git,
+# DESCRIPTION...) absentes d'une image Docker minimale et peut se montrer
+# imprévisible.
+app_root <- getwd()
+models_dir <- file.path(app_root, "models")
 
+xgb_model <- xgb.load(file.path(models_dir, "xgb-classifier-model.json"))
+features  <- readRDS(file.path(models_dir, "xgb-model-features.rds"))
+rec_prep  <- readRDS(file.path(models_dir, "recipe_prep.rds"))
 
-best_thresh <- if (file.exists(here("models", "optimal_threshold.rds"))) {
-  readRDS(here("models", "optimal_threshold.rds"))
-  } else {
+best_thresh <- if (file.exists(file.path(models_dir, "optimal_threshold.rds"))) {
+  readRDS(file.path(models_dir, "optimal_threshold.rds"))
+} else {
   0.5
-    }
+}
+
+# Colonnes brutes minimales attendues en entrée (avant bake()).
+# A adapter précisément à votre recette si besoin.
+required_raw_cols <- c("tenure", "MonthlyCharges")
 
 #* @apiTitle XGBoost Churn Prediction API
 #* @apiDescription API d'inférence avec normalisation automatique de tenure et MonthlyCharges.
 #* @apiVersion 1.0.0
 
+# ================================================= #
+# Filtre CORS (nécessaire si appel depuis un navigateur / frontend web)
+# ================================================= #
+#* @filter cors
+function(req, res) {
+  res$setHeader("Access-Control-Allow-Origin", "*")
+  if (req$REQUEST_METHOD == "OPTIONS") {
+    res$setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    res$setHeader("Access-Control-Allow-Headers", "Content-Type")
+    res$status <- 200
+    return(list())
+  } else {
+    plumber::forward()
+  }
+}
 
 # ================================================= #
 # Endpoint : Health Check                           #
 # ================================================= #
 #* @get /health
 #* @serializer json
-
 function(res) {
   list(
     status = "healthy",
@@ -48,7 +67,6 @@ function(res) {
   )
 }
 
-
 # ================================================= #
 # Endpoint : Scoring Client                         #
 # ================================================= #
@@ -57,10 +75,12 @@ function(res) {
 #* @post /predict
 #* @serializer json
 #* @param req:object Payload JSON contenant les variables brutes et dummifiées.
-
 function(req, res) {
   
-  # 1. Parsing sécurisé du body JSON
+  # 1. Parsing sécurisé du body JSON.
+  # IMPORTANT: le handler d'erreur renvoie NULL (et non une liste "error=..."),
+  # afin que le test `is.null(body_data)` ci-dessous puisse réellement
+  # intercepter le cas d'échec et stopper le traitement avec un 400 propre.
   body_data <- tryCatch({
     if (is.character(req$postBody)) {
       fromJSON(req$postBody)
@@ -68,18 +88,36 @@ function(req, res) {
       req$args$body
     }
   }, error = function(e) {
-    res$status <- 400
-    return(list(error = "JSON invalide dans le corps de la requête."))
+    NULL
   })
   
-  if (is.null(body_data)) {
+  if (is.null(body_data) || length(body_data) == 0) {
     res$status <- 400
-    return(list(error = "Le corps de la requête est vide."))
+    return(list(error = "JSON invalide ou corps de requête vide."))
   }
   
-  df_input <- as.data.frame(body_data)
+  df_input <- tryCatch({
+    as.data.frame(body_data)
+  }, error = function(e) {
+    NULL
+  })
   
-  # 2. Identification / Génération de ID_CLIENT
+  if (is.null(df_input) || nrow(df_input) == 0) {
+    res$status <- 400
+    return(list(error = "Impossible d'interpréter le payload comme un tableau d'observations."))
+  }
+  
+  # 2. Validation des colonnes brutes minimales attendues avant bake()
+  missing_raw <- setdiff(required_raw_cols, names(df_input))
+  if (length(missing_raw) > 0) {
+    res$status <- 400
+    return(list(
+      error = "Colonnes obligatoires manquantes dans le payload.",
+      missing_columns = missing_raw
+    ))
+  }
+  
+  # 3. Identification / Génération de ID_CLIENT
   id_col <- names(df_input)[tolower(names(df_input)) %in% c("customerid", "customer_id", "id_client", "id", "client_id")][1]
   
   if (!is.na(id_col)) {
@@ -89,11 +127,11 @@ function(req, res) {
   }
   
   tryCatch({
-    # 3. Application de la recette (Scaling sur tenure & MonthlyCharges)
+    # 4. Application de la recette (Scaling sur tenure & MonthlyCharges)
     # bake() applique la transformation enregistrée dans recipe_prep.rds
     df_transformed <- bake(rec_prep, new_data = df_input)
     
-    # 4. Complétion automatique si une colonne manque
+    # 5. Complétion automatique si une colonne manque
     missing_feats <- setdiff(features, names(df_transformed))
     if (length(missing_feats) > 0) {
       for (col in missing_feats) {
@@ -101,16 +139,16 @@ function(req, res) {
       }
     }
     
-    # 5. Extraction de la matrice numérique alignée sur les 22 features
+    # 6. Extraction de la matrice numérique alignée sur les features attendues
     X_matrix <- as.matrix(df_transformed[, features, drop = FALSE])
     storage.mode(X_matrix) <- "numeric"
     X_matrix[is.na(X_matrix)] <- 0
     
-    # 6. Inférence XGBoost
+    # 7. Inférence XGBoost
     pred_probs <- predict(xgb_model, X_matrix)
     pred_class <- ifelse(pred_probs >= best_thresh, 1, 0)
     
-    # 7. Résultat
+    # 8. Résultat
     results <- data.frame(
       id_client = client_ids,
       churn_proba = round(pred_probs, 4),
@@ -130,7 +168,6 @@ function(req, res) {
     ))
   })
 }
-
 
 # ================================================= #
 # 3. Injection des données exactes dans Swagger UI #
@@ -200,4 +237,3 @@ function(pr) {
     spec
   })
 }
-
