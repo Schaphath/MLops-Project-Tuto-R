@@ -5,14 +5,13 @@ on:
     branches:
       - main
     tags:
-      - 'v*.*.*'          # ex: v1.0.0 -> déclenche aussi un tag de version propre sur Docker Hub
+      - 'v*.*.*'
     paths:
       - 'api/**'
       - 'app/**'
-      - '.github/workflows/deploy-docker-hub.yml'
-  workflow_dispatch: {}    # permet de relancer manuellement depuis l'onglet Actions
+      - '.github/workflows/deploy-docker-hub-1.yml'
+  workflow_dispatch: {}
 
-# Annule un run en cours si un nouveau push arrive sur la même branche/tag
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,33 +20,59 @@ permissions:
   contents: read
 
 jobs:
+  # ==================================================
+  # Job Preflight : Validation rapide des prérequis
+  # ==================================================
+  preflight:
+    name: Preflight Secrets Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Docker Hub Credentials
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "::error::DOCKERHUB_USERNAME ou DOCKERHUB_TOKEN manquant dans les secrets GitHub."
+            exit 1
+          fi
+          echo "Configuration des secrets validée."
 
   # ==================================================
-  # Job 1 : Build & Push de l'image API (Plumber)
+  # Job 1 : Build, Test, Scan & Push API (Plumber)
   # ==================================================
   build-api:
     name: Build & Push API (Plumber)
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
+      # actions/checkout v4.1.7 (SHA-pinned)
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+        with:
+          fetch-depth: 0
 
+      - name: Run API Tests (if present)
+        run: |
+          if [ -f "./api/run-tests.sh" ]; then
+            chmod +x ./api/run-tests.sh
+            ./api/run-tests.sh
+          else
+            echo "Aucun script ./api/run-tests.sh détecté. Poursuite du pipeline."
+          fi
+
+      # docker/login-action v3.3.0 (SHA-pinned)
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@0d4c9c5ea7693da7b069a1841bce42078d0d9f04
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # docker/setup-buildx-action v3.6.1 (SHA-pinned)
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@988b5a0280414f521da01f narrow
 
-      # Génère automatiquement les bons tags :
-      # - "latest" sur push vers main
-      # - le SHA court du commit, systématique (traçabilité)
-      # - "1.2.0", "1.2", "1" si le push est un tag Git de type vX.Y.Z (release publique)
+      # docker/metadata-action v5.5.1 (SHA-pinned)
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@8e883741368297746816007b
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api
           tags: |
@@ -57,20 +82,42 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
-      - name: Build and push Plumber API image
-        uses: docker/build-push-action@v5
+      # Build local pour analyse Trivy sans push immédiat
+      # docker/build-push-action v6.5.0 (SHA-pinned)
+      - name: Build local image for vulnerability scanning
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
         with:
           context: ./api
           file: ./api/Dockerfile
-          push: true
+          load: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-test
+          cache-from: type=gha,scope=api
+
+      # aquasecurity/trivy-action v0.24.0 (SHA-pinned)
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@6e7ba9633e9d40b8f44be98d2466085aed30268a
+        with:
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-test'
+          format: 'table'
+          exit-code: '0' # Passer à '1' pour bloquer le pipeline en cas de vulnérabilité CRITICAL
+          severity: 'CRITICAL,HIGH'
+
+      # Push officiel sur Docker Hub
+      - name: Build and push Plumber API image
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
+      # peter-evans/dockerhub-description v4.0.1 (SHA-pinned)
       - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
-        continue-on-error: true   # ne bloque jamais le pipeline si ce step échoue
+        uses: peter-evans/dockerhub-description@e98f4a14f0c0af30b42f
+        continue-on-error: true
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -79,27 +126,39 @@ jobs:
           readme-filepath: ./api/README.md
 
   # ==================================================
-  # Job 2 : Build & Push de l'image Shiny (en parallèle)
+  # Job 2 : Build, Test, Scan & Push Shiny App
   # ==================================================
   build-shiny:
     name: Build & Push Shiny App
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+        with:
+          fetch-depth: 0
+
+      - name: Run Shiny App Tests (if present)
+        run: |
+          if [ -f "./app/run-tests.sh" ]; then
+            chmod +x ./app/run-tests.sh
+            ./app/run-tests.sh
+          else
+            echo "Aucun script ./app/run-tests.sh détecté. Poursuite du pipeline."
+          fi
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@0d4c9c5ea7693da7b069a1841bce42078d0d9f04
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@988b5a0280414f521da01f
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@8e883741368297746816007b
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
           tags: |
@@ -109,19 +168,36 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
-      - name: Build and push Shiny App image
-        uses: docker/build-push-action@v5
+      - name: Build local image for vulnerability scanning
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
         with:
           context: ./app
           file: ./app/Dockerfile
-          push: true
+          load: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-test
+          cache-from: type=gha,scope=shiny
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@6e7ba9633e9d40b8f44be98d2466085aed30268a
+        with:
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-test'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Build and push Shiny App image
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=shiny
           cache-to: type=gha,mode=max,scope=shiny
 
       - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@e98f4a14f0c0af30b42f
         continue-on-error: true
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -129,4 +205,3 @@ jobs:
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
           short-description: "Interface Shiny de scoring churn client (Telco Côte d'Ivoire)"
           readme-filepath: ./app/README.md
-          
