@@ -43,9 +43,8 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
-      # actions/checkout v4.1.7 (SHA-pinned)
       - name: Checkout repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+        uses: actions/checkout@v4.1.7
         with:
           fetch-depth: 0
 
@@ -58,21 +57,18 @@ jobs:
             echo "Aucun script ./api/run-tests.sh détecté. Poursuite du pipeline."
           fi
 
-      # docker/login-action v3.3.0 (SHA-pinned)
       - name: Log in to Docker Hub
-        uses: docker/login-action@0d4c9c5ea7693da7b069a1841bce42078d0d9f04
+        uses: docker/login-action@v3.3.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # docker/setup-buildx-action v3.6.1 (SHA-pinned)
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@988b5a0280414f521da01f narrow
+        uses: docker/setup-buildx-action@v3.6.1
 
-      # docker/metadata-action v5.5.1 (SHA-pinned)
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@8e883741368297746816007b
+        uses: docker/metadata-action@v5.5.1
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api
           tags: |
@@ -83,9 +79,8 @@ jobs:
             type=semver,pattern={{major}}
 
       # Build local pour analyse Trivy sans push immédiat
-      # docker/build-push-action v6.5.0 (SHA-pinned)
       - name: Build local image for vulnerability scanning
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
+        uses: docker/build-push-action@v6.5.0
         with:
           context: ./api
           file: ./api/Dockerfile
@@ -93,9 +88,8 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-test
           cache-from: type=gha,scope=api
 
-      # aquasecurity/trivy-action v0.24.0 (SHA-pinned)
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@6e7ba9633e9d40b8f44be98d2466085aed30268a
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-test'
           format: 'table'
@@ -104,7 +98,7 @@ jobs:
 
       # Push officiel sur Docker Hub
       - name: Build and push Plumber API image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
+        uses: docker/build-push-action@v6.5.0
         with:
           context: ./api
           file: ./api/Dockerfile
@@ -114,9 +108,8 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
-      # peter-evans/dockerhub-description v4.0.1 (SHA-pinned)
       - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@e98f4a14f0c0af30b42f
+        uses: peter-evans/dockerhub-description@v4.0.1
         continue-on-error: true
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -134,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+        uses: actions/checkout@v4.1.7
         with:
           fetch-depth: 0
 
@@ -148,17 +141,17 @@ jobs:
           fi
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@0d4c9c5ea7693da7b069a1841bce42078d0d9f04
+        uses: docker/login-action@v3.3.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@988b5a0280414f521da01f
+        uses: docker/setup-buildx-action@v3.6.1
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@8e883741368297746816007b
+        uses: docker/metadata-action@v5.5.1
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
           tags: |
@@ -169,7 +162,7 @@ jobs:
             type=semver,pattern={{major}}
 
       - name: Build local image for vulnerability scanning
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
+        uses: docker/build-push-action@v6.5.0
         with:
           context: ./app
           file: ./app/Dockerfile
@@ -178,7 +171,7 @@ jobs:
           cache-from: type=gha,scope=shiny
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@6e7ba9633e9d40b8f44be98d2466085aed30268a
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-test'
           format: 'table'
@@ -186,7 +179,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Build and push Shiny App image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226582c06f0842ce
+        uses: docker/build-push-action@v6.5.0
         with:
           context: ./app
           file: ./app/Dockerfile
@@ -197,7 +190,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=shiny
 
       - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@e98f4a14f0c0af30b42f
+        uses: peter-evans/dockerhub-description@v4.0.1
         continue-on-error: true
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
