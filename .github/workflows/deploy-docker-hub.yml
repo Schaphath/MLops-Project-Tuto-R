@@ -9,7 +9,7 @@ on:
     paths:
       - 'api/**'
       - 'app/**'
-      - '.github/workflows/deploy-docker-hub-1.yml'
+      - '.github/workflows/deploy-docker-hub.yml'
   workflow_dispatch: {}
 
 concurrency:
