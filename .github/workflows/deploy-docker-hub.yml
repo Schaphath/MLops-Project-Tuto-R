@@ -1,74 +1,89 @@
-name: CI/CD - Build and Push Docker Images to Docker Hub
+name: CI/CD - Build, Scan and Publish Docker Images
 
+# ============================================================================== #
+# QUAND CE WORKFLOW SE DÉCLENCHE-T-IL ? (= le "trigger")
+# ============================================================================== #
 on:
   push:
     branches:
-      - main
+      - main                  # à chaque envoi de code sur la branche principale
     tags:
-      - 'v*.*.*'
-    paths:
+      - 'v*.*.*'               # à chaque tag de version, ex: v1.0.0 (déclenche une "release")
+    paths:                     # on ne relance le pipeline QUE si ces dossiers changent
       - 'api/**'
       - 'app/**'
-      - '.github/workflows/deploy-docker-hub.yml'
-  workflow_dispatch: {}
+      - '.github/workflows/deploy-docker.yml'
+  workflow_dispatch: {}        # ajoute un bouton "Run workflow" manuel dans l'onglet Actions
 
+# Si un nouveau push arrive pendant qu'un run est en cours sur la même branche,
+# on annule l'ancien run : on ne construit jamais deux fois la même chose en parallèle.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# PRINCIPE DE SÉCURITÉ N°1 : le moindre privilège.
+# Par défaut, ce workflow n'a le droit QUE de lire le code du dépôt.
+# Aucun job ne pourra écrire sur GitHub, créer des issues, etc.
 permissions:
   contents: read
 
 jobs:
-  # ==================================================
-  # Job Preflight : Validation rapide des prérequis
-  # ==================================================
+
+  # ============================================================================== #
+  # JOB 0 : PREFLIGHT — Vérification rapide avant de lancer quoi que ce soit
+  # ============================================================================== #
+  # Idée pédagogique : mieux vaut échouer en 5 secondes avec un message clair
+  # ("il manque un secret") que d'échouer après 5 minutes de build pour la
+  # même raison.
   preflight:
-    name: Preflight Secrets Check
+    name: Vérification des prérequis
     runs-on: ubuntu-latest
     steps:
-      - name: Verify Docker Hub Credentials
+      - name: Vérifier que les identifiants Docker Hub sont configurés
         run: |
           if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ] || [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "::error::DOCKERHUB_USERNAME ou DOCKERHUB_TOKEN manquant dans les secrets GitHub."
+            echo "::error::Les secrets DOCKERHUB_USERNAME et/ou DOCKERHUB_TOKEN sont manquants."
+            echo "::error::Va dans Settings > Secrets and variables > Actions pour les ajouter."
             exit 1
           fi
-          echo "Configuration des secrets validée."
+          echo "OK : secrets Docker Hub présents."
 
-  # ==================================================
-  # Job 1 : Build, Test, Scan & Push API (Plumber)
-  # ==================================================
+  # ============================================================================== #
+  # JOB 1 : CI + CD pour l'API (dossier api/)
+  # ============================================================================== #
   build-api:
-    name: Build & Push API (Plumber)
-    needs: preflight
+    name: API - Build, Scan & Publish
+    needs: preflight              # attend que le job preflight réussisse avant de démarrer
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.1.7
-        with:
-          fetch-depth: 0
 
-      - name: Run API Tests (if present)
+      # --- ÉTAPE 1 : récupérer le code du dépôt sur le runner ---
+      - name: Récupérer le code (checkout)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # historique complet, nécessaire pour détecter les tags de version
+
+      # --- ÉTAPE 2 (CI - optionnelle) : lancer des tests si le projet en a ---
+      # Bonne pratique à développer plus tard : un script qui vérifie que l'API
+      # répond correctement avant même de construire l'image Docker.
+      - name: Exécuter les tests de l'API (si présents)
         run: |
           if [ -f "./api/run-tests.sh" ]; then
             chmod +x ./api/run-tests.sh
             ./api/run-tests.sh
           else
-            echo "Aucun script ./api/run-tests.sh détecté. Poursuite du pipeline."
+            echo "Aucun script api/run-tests.sh trouvé, cette étape est ignorée."
           fi
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3.3.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # --- ÉTAPE 3 : préparer l'outil de build Docker avancé (Buildx) ---
+      - name: Préparer Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.6.1
-
-      - name: Extract Docker metadata
+      # --- ÉTAPE 4 : calculer automatiquement les tags de l'image ---
+      # Exemple de résultat : "latest", "a1b2c3d" (le commit), "1.0.0" (si tag Git v1.0.0)
+      - name: Calculer les tags de l'image (metadata)
         id: meta
-        uses: docker/metadata-action@v5.5.1
+        uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api
           tags: |
@@ -78,80 +93,94 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
-      # Build local pour analyse Trivy sans push immédiat
-      - name: Build local image for vulnerability scanning
-        uses: docker/build-push-action@v6.5.0
+      # --- ÉTAPE 5 (SÉCURITÉ) : construire l'image SANS la publier ---
+      # "load: true" charge l'image dans Docker sur le runner, pour pouvoir
+      # l'analyser à l'étape suivante. Aucune connexion à Docker Hub n'a
+      # encore eu lieu à ce stade : impossible de publier une image non vérifiée.
+      - name: Construire l'image (build local, sans publication)
+        uses: docker/build-push-action@v6
         with:
           context: ./api
           file: ./api/Dockerfile
+          push: false
           load: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-test
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-scan
           cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
 
-      - name: Run Trivy vulnerability scanner
+      # --- ÉTAPE 6 (SÉCURITÉ) : scanner l'image à la recherche de failles connues ---
+      # exit-code: '1' est ce qui rend ce scan RÉELLEMENT bloquant :
+      # si une faille CRITICAL ou HIGH corrigible est trouvée, ce step échoue
+      # et TOUTES les étapes suivantes (dont la publication) sont annulées.
+      - name: Scanner l'image (Trivy)
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-test'
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-scan'
           format: 'table'
-          exit-code: '0' # Passer à '1' pour bloquer le pipeline en cas de vulnérabilité CRITICAL
           severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true       # ignore les failles pour lesquelles il n'existe pas encore de correctif
+          exit-code: '1'
 
-      # Push officiel sur Docker Hub
-      - name: Build and push Plumber API image
-        uses: docker/build-push-action@v6.5.0
+      # --- ÉTAPE 7 (SÉCURITÉ) : connexion à Docker Hub ---
+      # On se connecte seulement maintenant, juste avant d'en avoir besoin,
+      # et seulement si on est sur main ou sur un tag de version — jamais
+      # sur une simple branche de travail.
+      - name: Connexion à Docker Hub
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # --- ÉTAPE 8 (CD) : publication de l'image, désormais vérifiée ---
+      - name: Publier l'image sur Docker Hub
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
         with:
           context: ./api
           file: ./api/Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
-      - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4.0.1
-        continue-on-error: true
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api
-          short-description: "API REST de scoring client (XGBoost + Plumber)"
-          readme-filepath: ./api/README.md
+      # --- ÉTAPE 9 (SÉCURITÉ) : déconnexion systématique ---
+      # "if: always()" garantit l'exécution même si une étape précédente a échoué.
+      - name: Déconnexion de Docker Hub
+        if: always()
+        run: docker logout || true
 
-  # ==================================================
-  # Job 2 : Build, Test, Scan & Push Shiny App
-  # ==================================================
-  build-shiny:
-    name: Build & Push Shiny App
+  # ============================================================================== #
+  # JOB 2 : CI + CD pour l'interface (dossier app/)
+  # ============================================================================== #
+  # Même structure que le job API, appliquée au dossier app/.
+  build-app:
+    name: App - Build, Scan & Publish
     needs: preflight
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4.1.7
+
+      - name: Récupérer le code (checkout)
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run Shiny App Tests (if present)
+      - name: Exécuter les tests de l'application (si présents)
         run: |
           if [ -f "./app/run-tests.sh" ]; then
             chmod +x ./app/run-tests.sh
             ./app/run-tests.sh
           else
-            echo "Aucun script ./app/run-tests.sh détecté. Poursuite du pipeline."
+            echo "Aucun script app/run-tests.sh trouvé, cette étape est ignorée."
           fi
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3.3.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Préparer Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.6.1
-
-      - name: Extract Docker metadata
+      - name: Calculer les tags de l'image (metadata)
         id: meta
-        uses: docker/metadata-action@v5.5.1
+        uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
           tags: |
@@ -161,40 +190,45 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
 
-      - name: Build local image for vulnerability scanning
-        uses: docker/build-push-action@v6.5.0
+      - name: Construire l'image (build local, sans publication)
+        uses: docker/build-push-action@v6
         with:
           context: ./app
           file: ./app/Dockerfile
+          push: false
           load: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-test
-          cache-from: type=gha,scope=shiny
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-scan
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
 
-      - name: Run Trivy vulnerability scanner
+      - name: Scanner l'image (Trivy)
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-test'
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-scan'
           format: 'table'
-          exit-code: '0'
           severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
 
-      - name: Build and push Shiny App image
-        uses: docker/build-push-action@v6.5.0
-        with:
-          context: ./app
-          file: ./app/Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=shiny
-          cache-to: type=gha,mode=max,scope=shiny
-
-      - name: Update Docker Hub description
-        uses: peter-evans/dockerhub-description@v4.0.1
-        continue-on-error: true
+      - name: Connexion à Docker Hub
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
-          short-description: "Interface Shiny de scoring churn client (Telco Côte d'Ivoire)"
-          readme-filepath: ./app/README.md
+
+      - name: Publier l'image sur Docker Hub
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+      - name: Déconnexion de Docker Hub
+        if: always()
+        run: docker logout || true
