@@ -1,5 +1,5 @@
 # Auteur : Madiba
-# Shiny UI Client -> API Plumber (Fix blocage API + Espacement formulaire + Formulaire en 3 sections)
+# Shiny UI Client -> API Plumber (v1.2 - Formulaire restructuré + Auth API Key)
 
 library(shiny)
 library(bslib)
@@ -8,26 +8,31 @@ library(dplyr)
 library(httr2)
 library(jsonlite)
 
-# Endpoint local de l'API Plumber
+# Endpoint de l'API Plumber (résolution dynamique host/port, cf. bug 127.0.0.1)
 API_URL <- Sys.getenv("API_URL", unset = "http://127.0.0.1:8080")
+
+# Clé API (nouveau) : si définie, envoyée en en-tête X-API-Key sur /predict.
+# Reste vide et sans effet si l'API cible n'exige pas d'authentification (v1.2.0
+# ou v1.3.0 avec API_KEY non configurée côté serveur).
+API_KEY <- Sys.getenv("API_KEY", unset = "")
 
 #=================================================#
 #                   INTERFACE UI                  #
 #=================================================#
 ui <- fluidPage(
-  title = "Telco Churn App",
+  title = "Telco Churn AI - Côte d'Ivoire",
   
   tags$head(
     tags$style(HTML("
       @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@600&display=swap');
-      
+
       body {
         background-color: #f8fafc !important;
         font-family: 'Plus Jakarta Sans', sans-serif !important;
         color: #1e293b;
         padding-bottom: 50px;
       }
-      
+
       /* En-tête principal Orange CI & Vert subtil */
       .app-header {
         background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
@@ -37,7 +42,7 @@ ui <- fluidPage(
         box-shadow: 0 4px 15px rgba(234, 88, 12, 0.2);
         border-bottom: 4px solid #16a34a;
       }
-      
+
       .app-title {
         font-size: 22px;
         font-weight: 700;
@@ -97,9 +102,9 @@ ui <- fluidPage(
         font-size: 12px !important;
         font-weight: 600 !important;
         color: #475569 !important;
-        margin-bottom: 8px !important; /* Espacement label-champ */
+        margin-bottom: 8px !important;
       }
-      
+
       .form-control, .selectize-input {
         font-size: 13px !important;
         border-radius: 8px !important;
@@ -108,9 +113,9 @@ ui <- fluidPage(
         min-height: 40px !important;
         padding: 8px 12px !important;
       }
-      
+
       .form-group {
-        margin-bottom: 22px !important; /* Espacement vertical entre les champs */
+        margin-bottom: 22px !important;
       }
 
       /* Petit bouton Orange ajusté */
@@ -125,7 +130,7 @@ ui <- fluidPage(
         transition: all 0.2s ease !important;
         box-shadow: 0 3px 10px rgba(249, 115, 22, 0.3) !important;
       }
-      
+
       .btn-predict:hover {
         background: #ea580c !important;
         transform: translateY(-1px);
@@ -175,7 +180,7 @@ ui <- fluidPage(
         font-size: 13px;
         display: inline-block;
       }
-      
+
       .badge-nochurn {
         background: #f0fdf4;
         color: #16a34a;
@@ -185,6 +190,14 @@ ui <- fluidPage(
         font-weight: 700;
         font-size: 13px;
         display: inline-block;
+      }
+
+      .model-version-tag {
+        text-align: center;
+        margin-top: 14px;
+        font-size: 11px;
+        color: #94a3b8;
+        font-family: 'JetBrains Mono', monospace;
       }
     "))
   ),
@@ -197,7 +210,6 @@ ui <- fluidPage(
       )
   ),
   
-  # Formulaire centré
   div(class = "main-container",
       
       # ============================================================ #
@@ -266,7 +278,7 @@ ui <- fluidPage(
           actionButton("predict_btn", label = "Lancer la prédiction", class = "btn-predict", icon = icon("paper-plane"))
       ),
       
-      # Affichage conditionnel des résultats (Strictement bloqué si API fermée)
+      # Affichage conditionnel des résultats (masqué si API fermée ou en erreur)
       uiOutput("results_ui")
   )
 )
@@ -333,7 +345,7 @@ server <- function(input, output, session) {
         paste0("Erreur : l'API Plumber n'est pas joignable sur ", api_host, ":", api_port),
         type = "error", duration = 5
       )
-      return(NULL) # Annulation complète de la réponse
+      return(NULL)
     }
     
     # 2. Exécution de la requête HTTP
@@ -343,7 +355,15 @@ server <- function(input, output, session) {
       json_data <- toJSON(df, auto_unbox = TRUE)
       
       req_obj <- request(paste0(API_URL, "/predict")) %>%
-        req_headers("Content-Type" = "application/json") %>%
+        req_headers("Content-Type" = "application/json")
+      
+      # Ajout conditionnel de la clé API (nouveau, compatibilité API v1.3.0).
+      # Sans effet si API_KEY n'est pas définie côté client Shiny.
+      if (nzchar(API_KEY)) {
+        req_obj <- req_obj %>% req_headers("X-API-Key" = API_KEY)
+      }
+      
+      req_obj <- req_obj %>%
         req_body_raw(json_data, type = "application/json") %>%
         req_timeout(3) %>%
         req_perform()
@@ -351,7 +371,10 @@ server <- function(input, output, session) {
       resp_body_string(req_obj) %>% fromJSON()
       
     }, error = function(e) {
-      showNotification(paste0("Erreur de prédiction : ", conditionMessage(e)), type = "error", duration = 5)
+      # httr2 lève une erreur explicite sur les statuts HTTP 4xx/5xx
+      # (401 en cas de clé API manquante/invalide, 413 si le payload est
+      # trop volumineux, etc.) : conditionMessage(e) en contient le détail.
+      showNotification(paste0("Erreur de prédiction : ", conditionMessage(e)), type = "error", duration = 6)
       return(NULL)
     })
   })
@@ -360,34 +383,40 @@ server <- function(input, output, session) {
   output$results_ui <- renderUI({
     res <- api_response()
     
-    # Si l'API renvoie NULL (hors ligne ou erreur), on masque le bloc de résultats
     if (is.null(res)) {
       return(NULL)
     }
     
-    proba_val <- if("churn_proba" %in% names(res)) res$churn_proba else res[[1]]
-    decision_val <- if("decision" %in% names(res)) res$decision else ifelse(proba_val > 0.5, "Churn", "Fidèle")
+    proba_val <- if ("churn_proba" %in% names(res)) res$churn_proba else res[[1]]
+    decision_val <- if ("decision" %in% names(res)) res$decision else ifelse(proba_val > 0.5, "Churn", "Fidèle")
+    model_version_val <- if ("model_version" %in% names(res)) res$model_version else NA
     
     proba_pct <- round(as.numeric(proba_val) * 100, 2)
     is_churn <- decision_val == "Churn"
     
-    div(class = "results-container",
-        fluidRow(
-          column(6,
-                 div(class = "metric-box",
-                     div(class = "metric-label", "Probabilité de Churn"),
-                     div(class = "metric-value", paste0(proba_pct, " %"))
-                 )
-          ),
-          column(6,
-                 div(class = "metric-box",
-                     div(class = "metric-label", "Décision du Modèle"),
-                     div(style = "margin-top: 8px;",
-                         span(class = if(is_churn) "badge-churn" else "badge-nochurn", decision_val)
-                     )
-                 )
+    tagList(
+      div(class = "results-container",
+          fluidRow(
+            column(6,
+                   div(class = "metric-box",
+                       div(class = "metric-label", "Probabilité de Churn"),
+                       div(class = "metric-value", paste0(proba_pct, " %"))
+                   )
+            ),
+            column(6,
+                   div(class = "metric-box",
+                       div(class = "metric-label", "Décision du Modèle"),
+                       div(style = "margin-top: 8px;",
+                           span(class = if (is_churn) "badge-churn" else "badge-nochurn", decision_val)
+                       )
+                   )
+            )
           )
-        )
+      ),
+      # Traçabilité : version du modèle ayant produit la prédiction (nouveau, champ renvoyé par l'API v1.3.0)
+      if (!is.na(model_version_val)) {
+        div(class = "model-version-tag", paste0("Modèle v", model_version_val))
+      }
     )
   })
 }

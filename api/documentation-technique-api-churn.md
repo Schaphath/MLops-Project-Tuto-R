@@ -1,8 +1,10 @@
-# Documentation technique — API de scoring Churn (XGBoost + Plumber)
+## Documentation technique — API de scoring Churn (XGBoost + Plumber)
 
-**Auteur du code source :** @Madiba
-**Stack :** R 4.4 · Plumber · XGBoost · Recipes
-**Version API :** 1.2.0 (*Secure Demo*)
+- **Auteur du code source :** @Madiba
+
+- **Stack :** R 4.6 - Plumber - XGBoost - Recipes
+
+- **Version API :** 1.2.0 (*Secure Demo*)
 
 ---
 
@@ -62,7 +64,7 @@ Vérifie que le processus est démarré et que **les trois artefacts critiques**
   "timestamp": "2026-08-15 10:00:00",
   "model_loaded": true,
   "features_count": 22,
-  "decision_thresh": 0.42
+  "decision_thresh": 0.54
 }
 ```
 
