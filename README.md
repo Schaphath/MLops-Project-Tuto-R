@@ -1,11 +1,4 @@
----
 
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
-::: {align="center"}
 ## Telco Churn Prediction — R - XGBoost - Shiny - Docker
 
 **Prédiction du churn client d'un opérateur télécom, de l'analyse exploratoire jusqu'à une application interactive déployée.**
@@ -293,5 +286,7 @@ Une **version durcie de l'API (v1.3.0)** et son **interface compatible** ont ét
 ## Aperçu de l'interface de l'application
 
 ![](image_app/interface_app.PNG)
+
+
 
 ![](image_app/interface_app_active.PNG)
