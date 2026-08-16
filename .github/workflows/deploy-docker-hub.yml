@@ -1,0 +1,132 @@
+name: CI/CD - Build and Push Docker Images to Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'          # ex: v1.0.0 -> déclenche aussi un tag de version propre sur Docker Hub
+    paths:
+      - 'api/**'
+      - 'app/**'
+      - '.github/workflows/deploy-docker-hub.yml'
+  workflow_dispatch: {}    # permet de relancer manuellement depuis l'onglet Actions
+
+# Annule un run en cours si un nouveau push arrive sur la même branche/tag
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ==================================================
+  # Job 1 : Build & Push de l'image API (Plumber)
+  # ==================================================
+  build-api:
+    name: Build & Push API (Plumber)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Génère automatiquement les bons tags :
+      # - "latest" sur push vers main
+      # - le SHA court du commit, systématique (traçabilité)
+      # - "1.2.0", "1.2", "1" si le push est un tag Git de type vX.Y.Z (release publique)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push Plumber API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        continue-on-error: true   # ne bloque jamais le pipeline si ce step échoue
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api
+          short-description: "API REST de scoring client (XGBoost + Plumber)"
+          readme-filepath: ./api/README.md
+
+  # ==================================================
+  # Job 2 : Build & Push de l'image Shiny (en parallèle)
+  # ==================================================
+  build-shiny:
+    name: Build & Push Shiny App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push Shiny App image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=shiny
+          cache-to: type=gha,mode=max,scope=shiny
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app
+          short-description: "Interface Shiny de scoring churn client (Telco Côte d'Ivoire)"
+          readme-filepath: ./app/README.md
+          

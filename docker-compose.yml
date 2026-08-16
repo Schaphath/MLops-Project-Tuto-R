@@ -1,8 +1,6 @@
 services:
 
-  # ==========================================
   # API de scoring — Plumber / XGBoost
-  # ==========================================
   api:
     build:
       context: ./api
@@ -10,8 +8,6 @@ services:
     image: telco-churn-api:1.2.0
     container_name: telco-churn-api
     restart: unless-stopped
-    # Pas de port publié vers l'hôte : l'API n'est joignable
-    # que depuis le réseau interne (accès direct par le client Shiny).
     expose:
       - "8080"
     environment:
@@ -42,9 +38,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ==========================================
   # Client Shiny — Interface utilisateur
-  # ==========================================
   shiny:
     build:
       context: ./app
@@ -55,8 +49,6 @@ services:
     ports:
       - "3838:3838"
     environment:
-      # Résolution par nom de service Docker (et non 127.0.0.1),
-      # voir la remarque ci-dessous sur le fix requis côté shiny.R.
       API_URL: "http://api:8080"
       TZ: "Africa/Abidjan"
     networks:
