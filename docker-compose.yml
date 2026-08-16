@@ -1,23 +1,25 @@
 services:
 
-  # ============================================================ #
-  # API de scoring Churn (Plumber + XGBoost)                     #
-  # ============================================================ #
+  # ==========================================
+  # API de scoring — Plumber / XGBoost
+  # ==========================================
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
-    container_name: churn-api
+    image: telco-churn-api:1.2.0
+    container_name: telco-churn-api
     restart: unless-stopped
-    # Le port n'est PAS publié sur l'hôte : l'API n'a pas d'authentification
-    # (voir la documentation technique), elle ne doit donc être joignable
-    # que depuis le réseau interne Docker, pas depuis l'extérieur.
-    # -> décommentez "ports" ci-dessous uniquement pour du debug local
-    #    (Postman, Swagger UI) et retirez-le avant toute mise en prod.
-    # ports:
-    #   - "8080:8080"
+    # Pas de port publié vers l'hôte : l'API n'est joignable
+    # que depuis le réseau interne (accès direct par le client Shiny).
     expose:
       - "8080"
+    environment:
+      TZ: "Africa/Abidjan"
+    volumes:
+      # Montage des artefacts en lecture seule : permet de mettre à jour
+      # le modèle sans reconstruire l'image.
+      - ./api/models:/app/models:ro
     networks:
       - churn-net
     healthcheck:
@@ -26,37 +28,61 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+        reservations:
+          cpus: "0.25"
+          memory: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ============================================================ #
-  # Interface Shiny (consomme l'API via HTTP)                    #
-  # ============================================================ #
+  # ==========================================
+  # Client Shiny — Interface utilisateur
+  # ==========================================
   shiny:
     build:
       context: ./app
       dockerfile: Dockerfile
-    container_name: churn-shiny
+    image: telco-churn-shiny:1.0.0
+    container_name: telco-churn-shiny
     restart: unless-stopped
     ports:
       - "3838:3838"
     environment:
-      # Surcharge la valeur par défaut (127.0.0.1) définie dans le Dockerfile :
-      # "api" est résolu automatiquement par Docker Compose vers l'IP interne
-      # du service ci-dessus, sur le réseau "churn-net".
+      # Résolution par nom de service Docker (et non 127.0.0.1),
+      # voir la remarque ci-dessous sur le fix requis côté shiny.R.
       API_URL: "http://api:8080"
+      TZ: "Africa/Abidjan"
     networks:
       - churn-net
     depends_on:
-      # Attend que l'API soit réellement "healthy" (pas juste démarrée)
-      # avant de lancer Shiny, pour éviter une erreur de connexion au
-      # premier appel si l'app fait un health-check au démarrage.
       api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3838/"]
       interval: 30s
       timeout: 5s
-      start_period: 20s
+      start_period: 15s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+        reservations:
+          cpus: "0.25"
+          memory: 256m
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   churn-net:

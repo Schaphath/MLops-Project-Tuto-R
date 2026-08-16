@@ -276,9 +276,14 @@ server <- function(input, output, session) {
   api_response <- eventReactive(input$predict_btn, {
     req(formatted_payload())
     
-    # 1. Test de socket local sur le port 8080
+    # 1. Test de disponibilité de l'API, basé dynamiquement sur API_URL
+    #    (host + port extraits de la variable d'env, plus de valeur en dur)
+    api_host <- sub("^https?://([^:/]+).*$", "\\1", API_URL)
+    api_port_raw <- sub("^https?://[^:/]+:?([0-9]*).*$", "\\1", API_URL)
+    api_port <- if (nzchar(api_port_raw)) as.integer(api_port_raw) else 80L
+    
     api_online <- tryCatch({
-      con <- socketConnection(host = "127.0.0.1", port = 8080, timeout = 1)
+      con <- socketConnection(host = api_host, port = api_port, timeout = 1)
       close(con)
       TRUE
     }, error = function(e) {
@@ -286,7 +291,10 @@ server <- function(input, output, session) {
     })
     
     if (!api_online) {
-      showNotification("Erreur : L'API Plumber n'est pas démarrée sur http://127.0.0.1:8080", type = "error", duration = 5)
+      showNotification(
+        paste0("Erreur : l'API Plumber n'est pas joignable sur ", api_host, ":", api_port),
+        type = "error", duration = 5
+      )
       return(NULL) # Annulation complète de la réponse
     }
     
