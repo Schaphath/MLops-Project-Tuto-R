@@ -8,9 +8,8 @@ library(dplyr)
 library(httr2)
 library(jsonlite)
 
-# Récupération de l'URL depuis les variables d'environnement
-#API_URL <- Sys.getenv("API_URL", unset = "http://127.0.0.1:8080")
-api_url <- Sys.getenv("API_URL", unset = "http://api:8000")
+# Endpoint local de l'API Plumber
+API_URL <- Sys.getenv("API_URL", unset = "http://127.0.0.1:8080")
 
 #=================================================#
 #                   INTERFACE UI                  #
