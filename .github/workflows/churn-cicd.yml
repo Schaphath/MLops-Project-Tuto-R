@@ -113,7 +113,7 @@ jobs:
       # si une faille CRITICAL ou HIGH corrigible est trouvée, ce step échoue
       # et TOUTES les étapes suivantes (dont la publication) sont annulées.
       - name: Scanner l'image (Trivy)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (SHA vérifié le 17/08/2026 sur github.com/aquasecurity/trivy-action/releases/tag/v0.36.0)
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-plumber-api:local-scan'
           format: 'table'
@@ -202,7 +202,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=app
 
       - name: Scanner l'image (Trivy)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (SHA vérifié le 17/08/2026 sur github.com/aquasecurity/trivy-action/releases/tag/v0.36.0)
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/xgb-shiny-app:local-scan'
           format: 'table'
@@ -232,4 +232,3 @@ jobs:
       - name: Déconnexion de Docker Hub
         if: always()
         run: docker logout || true
-        
