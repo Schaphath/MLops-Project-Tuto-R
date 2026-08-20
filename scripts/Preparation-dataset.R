@@ -3,21 +3,22 @@
 
 
 ## Librairies 
-library(here)
 library(fastDummies)
+library(dplyr)
+library(here)
 
 
 ## Importation dataset 
 path.churn <- here("data", "process")
-df <- read.csv(paste(path.churn, "churn_modif.csv", sep = "/"))
+churn_modif <- read.csv(paste(path.churn, "churn_modif.csv", sep = "/"))
 
 
 ## Recode la variable Churn 
-df <- df |> 
-  mutate(Churn = ifelse(Churn == "Yes", 1, 0))
+churn_modif <- churn_modif |> 
+  mutate(gender = ifelse(gender == "Male", "Yes", "No"))
 
 ## Suppression de quelques variables 
-df <- df |> dplyr::select(-c(gender, PhoneService, TotalCharges))
+#df <- df |> dplyr::select(-c(gender, PhoneService, TotalCharges))
 
 
 ## Foncttion RecodeYesNo
@@ -45,7 +46,7 @@ RecodeYesNo <- function(data) {
 
 
 ## Applique le recodage 
-df <- RecodeYesNo(data=df)
+churn_modif <- RecodeYesNo(data=churn_modif)
 
 
 ## Fonction CreateDummies
@@ -66,7 +67,8 @@ ColName <- c("MultipleLines", "InternetService", "Contract",
              "PaymentMethod", "ServiceSup")
 
 ## Nouveau Dataset 
-dfNew <- CreateDummies(data=df, variables = ColName)
+dfNew <- CreateDummies(data=churn_modif, variables = ColName)
+
 
 
 ## Rename variables
@@ -79,8 +81,20 @@ dfNew <- dfNew |> rename(
   "PaymentMethod_Mailed_check" = "PaymentMethod_Mailed check",
   "InternetService_Fiber_optic" = "InternetService_Fiber optic", 
   "Contract_Month_to_month" = "Contract_Month-to-month", 
-)
+  "Contract_One_year" = "Contract_One year",   
+  "Contract_Two_year" = "Contract_Two year"
+  )
+
+
+# Création de la variable No_Internet_Service
+dfNew <- dfNew |> mutate(
+  No_Internet_Service = ifelse(ServiceSup_No_internet_service==1 &
+                                 InternetService_No==1, 1, 0)) |> 
+  select(-c(ServiceSup_No_internet_service, 
+            InternetService_No, TotalCharges, 
+            MultipleLines_No_phone_service))
+
 
 ## Enregistrer dfNew
-write.csv(dfNew, paste(path_df, "dfNew.csv", sep = "/"), row.names = FALSE)
+write.csv(dfNew, paste(path.churn, "churn_correcte.csv", sep = "/"), row.names = FALSE)
 

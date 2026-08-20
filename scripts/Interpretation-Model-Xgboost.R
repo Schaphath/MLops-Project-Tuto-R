@@ -32,6 +32,7 @@ COLORS <- list(
   green = "#34d399", red = "#f87171", yellow = "#fbbf24"
 )
 
+
 theme_churn <- function(base_size = 13) {
   theme_minimal(base_size = base_size) +
     theme(
@@ -57,11 +58,11 @@ theme_churn <- function(base_size = 13) {
 
 
 # Création de repetoire pour image
-dir.create(here("plots", "presentation"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("plots"), recursive = TRUE, showWarnings = FALSE)
 
 # Fonction de sauvegarde
 save_plot <- function(name, w = 10, h = 6) {
-  file_path <- here("plots", "presentation", paste0(name, ".png"))
+  file_path <- here("plots", paste0(name, ".png"))
   ggsave(file_path, width = w, height = h, dpi = 180, bg = COLORS$bg)
   message("Sauvegardé : ", file_path)
 }
@@ -70,8 +71,12 @@ save_plot <- function(name, w = 10, h = 6) {
 #=========================================#
 #  Chargement des données & artefacts     #
 #=========================================#
-dfNew <- read.csv(here("data", "process", "dfNew.csv"))
+dfNew <- read.csv(paste(here("data", "process"), "churn_correcte.csv", sep = "/"))
 dfNew$Churn <- as.numeric(as.character(dfNew$Churn))
+
+# Suppression de la variable Multiplelines_Yes
+dfNew <- dfNew |> select(-MultipleLines_Yes)
+
 
 set.seed(123)
 train_index <- createDataPartition(dfNew$Churn, p = 0.8, list = FALSE)
@@ -163,7 +168,7 @@ p_roc <- ggplot(roc_df, aes(x = FPR, y = TPR)) +
   annotate("text", x = 0.60, y = 0.52, hjust = 0,
            label = "Hasard (50/50)", color = COLORS$muted, size = 3.5, fontface = "italic") +
   annotate("label", x = 0.62, y = 0.22,
-           label = paste0("AUC = ", auc_val, "\n\"Très bon modèle\""),
+           label = paste0("AUC = ", auc_val, "\n\"Bon modèle\""),
            color = COLORS$cyan, fill = COLORS$panel,
            label.border = unit(0.4, "lines"),
            size = 4.2, fontface = "bold") +
