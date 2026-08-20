@@ -14,9 +14,12 @@ RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation des packages R via Posit PPM
+# Installation des packages R via Posit + Nettoyage de la documentation
 RUN R -e "options(repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux__/noble/latest')); \
-    install.packages(c('shiny', 'bslib', 'DT', 'dplyr', 'httr2', 'jsonlite'))"
+    install.packages(c('shiny', 'bslib', 'DT', 'dplyr', 'httr2', 'jsonlite'))" \
+    && rm -rf /usr/local/lib/R/site-library/*/doc \
+    && rm -rf /usr/local/lib/R/site-library/*/help \
+    && rm -rf /usr/local/lib/R/site-library/*/html
 
 # ==========================================
 # ÉTAPE 2 : Image Finale (Runtime Minimal)
@@ -37,10 +40,10 @@ COPY --from=builder /usr/local/lib/R/site-library /usr/local/lib/R/site-library
 
 WORKDIR /app
 
-# Copie de shiny.R situé dans le même dossier vers /app/app.R dans le conteneur
+# Copie de shiny.R vers /app/app.R dans le conteneur
 COPY shiny.R /app/app.R
 
-# Création et configuration d'un utilisateur non-root dédié (sécurité)
+# Création et configuration d'un utilisateur non-root dédié
 RUN groupadd -r shiny && useradd -r -g shiny -m -d /home/shiny shiny \
     && chown -R shiny:shiny /app /home/shiny
 
@@ -48,7 +51,8 @@ USER shiny
 
 EXPOSE 3838
 
-ENV API_URL="http://127.0.0.1:8080"
+# Valeur par défaut adaptée au DNS d'un réseau Docker / Docker Compose
+ENV API_URL="http://api:8080"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:3838/ || exit 1

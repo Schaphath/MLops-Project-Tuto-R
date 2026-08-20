@@ -1,6 +1,4 @@
-# Auteur : Madiba
-# Shiny UI Client -> API Plumber (Fix blocage API + Espacement formulaire + Formulaire en 3 sections)
-
+# Auteur : Madiba (Optimisé & Aligné avec l'API XGBoost 21 variables)
 library(shiny)
 library(bslib)
 library(DT)
@@ -28,7 +26,6 @@ ui <- fluidPage(
         padding-bottom: 50px;
       }
       
-      /* En-tête principal Orange CI & Vert subtil */
       .app-header {
         background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
         color: #ffffff;
@@ -53,9 +50,6 @@ ui <- fluidPage(
         margin: 0 auto;
       }
 
-      /* Chaque section du formulaire est désormais sa propre carte,
-         empilée verticalement, au lieu de deux colonnes mélangeant
-         des thématiques différentes. */
       .custom-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -92,12 +86,11 @@ ui <- fluidPage(
         font-weight: 700;
       }
 
-      /* Formulaires aérés */
       label {
         font-size: 12px !important;
         font-weight: 600 !important;
         color: #475569 !important;
-        margin-bottom: 8px !important; /* Espacement label-champ */
+        margin-bottom: 8px !important;
       }
       
       .form-control, .selectize-input {
@@ -110,10 +103,9 @@ ui <- fluidPage(
       }
       
       .form-group {
-        margin-bottom: 22px !important; /* Espacement vertical entre les champs */
+        margin-bottom: 22px !important;
       }
 
-      /* Petit bouton Orange ajusté */
       .btn-predict {
         background: #f97316 !important;
         color: #ffffff !important;
@@ -131,7 +123,6 @@ ui <- fluidPage(
         transform: translateY(-1px);
       }
 
-      /* Alertes & Résultats */
       .results-container {
         background: #ffffff;
         border: 2px solid #16a34a;
@@ -201,24 +192,26 @@ ui <- fluidPage(
   div(class = "main-container",
       
       # ============================================================ #
-      # Section 1 - Profil client (données démographiques)            #
+      # Section 1 - Profil client                                    #
       # ============================================================ #
       div(class = "custom-card",
           div(class = "card-subtitle",
               span(class = "step-number", "1"), "Profil Client"
           ),
           fluidRow(
-            column(4, selectInput("SeniorCitizen", "Senior (> 65 ans)",
+            column(3, selectInput("gender", "Genre",
+                                  choices = c("Femme" = 1, "Homme" = 0), selected = 1)),
+            column(3, selectInput("SeniorCitizen", "Senior (> 65 ans)",
                                   choices = c("Non" = 0, "Oui" = 1), selected = 0)),
-            column(4, selectInput("Partner", "En couple",
+            column(3, selectInput("Partner", "En couple",
                                   choices = c("Oui" = 1, "Non" = 0), selected = 1)),
-            column(4, selectInput("Dependents", "A charge",
+            column(3, selectInput("Dependents", "A charge",
                                   choices = c("Non" = 0, "Oui" = 1), selected = 0))
           )
       ),
       
       # ============================================================ #
-      # Section 2 - Contrat & Facturation                              #
+      # Section 2 - Contrat & Facturation                            #
       # ============================================================ #
       div(class = "custom-card",
           div(class = "card-subtitle",
@@ -232,7 +225,7 @@ ui <- fluidPage(
           ),
           fluidRow(
             column(6, selectInput("Contract", "Type de Contrat",
-                                  choices = c("Mois par mois" = "Month_to_month", "1 An" = "One.year", "2 Ans" = "Two.year"),
+                                  choices = c("Mois par mois" = "Month_to_month", "1 An" = "One_year", "2 Ans" = "Two_year"),
                                   selected = "Month_to_month")),
             column(6, selectInput("PaymentMethod", "Mode de Paiement",
                                   choices = c("Chèque électronique" = "Electronic_check", "Virement" = "Bank_transfer",
@@ -249,14 +242,16 @@ ui <- fluidPage(
               span(class = "step-number", "3"), "Services & Options"
           ),
           fluidRow(
-            column(4, selectInput("MultipleLines", "Lignes multiples",
-                                  choices = c("Non" = "No", "Sans service tel." = "No_phone_service", "Oui" = "Yes"),
-                                  selected = "No_phone_service")),
-            column(4, selectInput("InternetService", "Fournisseur Internet",
+            column(3, selectInput("PhoneService", "Service Téléphonie",
+                                  choices = c("Oui" = 1, "Non" = 0), selected = 1)),
+            column(3, selectInput("MultipleLines", "Lignes multiples",
+                                  choices = c("Non" = "No", "Oui" = "Yes"),
+                                  selected = "No")),
+            column(3, selectInput("InternetService", "Fournisseur Internet",
                                   choices = c("DSL" = "DSL", "Fibre optique" = "Fiber_optic", "Aucun" = "No"),
                                   selected = "DSL")),
-            column(4, selectInput("ServiceSup", "Support / Services Sup.",
-                                  choices = c("Non" = "No", "Pas d'internet" = "No_internet_service", "Oui" = "Yes"),
+            column(3, selectInput("ServiceSup", "Support / Services Sup.",
+                                  choices = c("Non" = "No", "Oui" = "Yes"),
                                   selected = "Yes"))
           )
       ),
@@ -266,110 +261,101 @@ ui <- fluidPage(
           actionButton("predict_btn", label = "Lancer la prédiction", class = "btn-predict", icon = icon("paper-plane"))
       ),
       
-      # Affichage conditionnel des résultats (Strictement bloqué si API fermée)
+      # Affichage conditionnel des résultats
       uiOutput("results_ui")
   )
 )
 
 #=================================================#
-#                  LOGIQUE SERVER                 #
+#                   LOGIQUE SERVER                #
 #=================================================#
 server <- function(input, output, session) {
   
+  # Construction du dataframe respectant exactement la liste des 21 variables du modèle XGBoost
   formatted_payload <- eventReactive(input$predict_btn, {
+    
+    # Gestion des cas Aucun Service Internet
+    no_internet <- ifelse(input$InternetService == "No", 1, 0)
+    
     data.frame(
-      customerID = paste0("CLI-", sample(10000:99999, 1)),
+      gender = as.numeric(input$gender),
       SeniorCitizen = as.numeric(input$SeniorCitizen),
       Partner = as.numeric(input$Partner),
       Dependents = as.numeric(input$Dependents),
       tenure = as.numeric(input$tenure),
+      PhoneService = as.numeric(input$PhoneService),
       PaperlessBilling = as.numeric(input$PaperlessBilling),
       MonthlyCharges = as.numeric(input$MonthlyCharges),
       
       MultipleLines_No = ifelse(input$MultipleLines == "No", 1, 0),
-      MultipleLines_No_phone_service = ifelse(input$MultipleLines == "No_phone_service", 1, 0),
-      MultipleLines_Yes = ifelse(input$MultipleLines == "Yes", 1, 0),
-      
       InternetService_DSL = ifelse(input$InternetService == "DSL", 1, 0),
       InternetService_Fiber_optic = ifelse(input$InternetService == "Fiber_optic", 1, 0),
-      InternetService_No = ifelse(input$InternetService == "No", 1, 0),
       
       Contract_Month_to_month = ifelse(input$Contract == "Month_to_month", 1, 0),
-      Contract_One.year = ifelse(input$Contract == "One.year", 1, 0),
-      Contract_Two.year = ifelse(input$Contract == "Two.year", 1, 0),
+      Contract_One_year = ifelse(input$Contract == "One_year", 1, 0),
+      Contract_Two_year = ifelse(input$Contract == "Two_year", 1, 0),
       
       PaymentMethod_Bank_transfer = ifelse(input$PaymentMethod == "Bank_transfer", 1, 0),
       PaymentMethod_Credit_card = ifelse(input$PaymentMethod == "Credit_card", 1, 0),
       PaymentMethod_Electronic_check = ifelse(input$PaymentMethod == "Electronic_check", 1, 0),
       PaymentMethod_Mailed_check = ifelse(input$PaymentMethod == "Mailed_check", 1, 0),
       
-      ServiceSup_No = ifelse(input$ServiceSup == "No", 1, 0),
-      ServiceSup_No_internet_service = ifelse(input$ServiceSup == "No_internet_service", 1, 0),
-      ServiceSup_Yes = ifelse(input$ServiceSup == "Yes", 1, 0),
+      ServiceSup_No = ifelse(input$ServiceSup == "No" && no_internet == 0, 1, 0),
+      ServiceSup_Yes = ifelse(input$ServiceSup == "Yes" && no_internet == 0, 1, 0),
+      No_Internet_Service = no_internet,
+      
       stringsAsFactors = FALSE
     )
   })
   
-  # Requête REST avec retour NULL explicite si l'API est absente
+  # Requête REST
   api_response <- eventReactive(input$predict_btn, {
     req(formatted_payload())
     
-    # 1. Test de disponibilité de l'API, basé dynamiquement sur API_URL
-    #    (host + port extraits de la variable d'env, plus de valeur en dur)
-    api_host <- sub("^https?://([^:/]+).*$", "\\1", API_URL)
-    api_port_raw <- sub("^https?://[^:/]+:?([0-9]*).*$", "\\1", API_URL)
-    api_port <- if (nzchar(api_port_raw)) as.integer(api_port_raw) else 80L
-    
+    # Verification du Healthcheck API
+    health_url <- paste0(API_URL, "/health")
     api_online <- tryCatch({
-      con <- socketConnection(host = api_host, port = api_port, timeout = 1)
-      close(con)
-      TRUE
-    }, error = function(e) {
-      FALSE
-    })
+      res <- request(health_url) %>% req_timeout(2) %>% req_perform()
+      resp_status(res) == 200
+    }, error = function(e) FALSE)
     
     if (!api_online) {
       showNotification(
-        paste0("Erreur : l'API Plumber n'est pas joignable sur ", api_host, ":", api_port),
+        paste0("Erreur : l'API Plumber n'est pas accessible sur ", API_URL),
         type = "error", duration = 5
       )
-      return(NULL) # Annulation complète de la réponse
+      return(NULL)
     }
     
-    # 2. Exécution de la requête HTTP
     df <- formatted_payload()
     
     tryCatch({
-      json_data <- toJSON(df, auto_unbox = TRUE)
-      
       req_obj <- request(paste0(API_URL, "/predict")) %>%
         req_headers("Content-Type" = "application/json") %>%
-        req_body_raw(json_data, type = "application/json") %>%
-        req_timeout(3) %>%
+        req_body_json(df) %>%
+        req_timeout(5) %>%
         req_perform()
       
       resp_body_string(req_obj) %>% fromJSON()
       
     }, error = function(e) {
-      showNotification(paste0("Erreur de prédiction : ", conditionMessage(e)), type = "error", duration = 5)
+      showNotification(paste0("Erreur lors de la prédiction : ", conditionMessage(e)), type = "error", duration = 5)
       return(NULL)
     })
   })
   
-  # Rendu de l'UI de résultat
+  # Rendu des métriques
   output$results_ui <- renderUI({
     res <- api_response()
     
-    # Si l'API renvoie NULL (hors ligne ou erreur), on masque le bloc de résultats
-    if (is.null(res)) {
-      return(NULL)
-    }
+    if (is.null(res)) return(NULL)
     
+    # Récupération flexible de la probabilité et de la classe
     proba_val <- if("churn_proba" %in% names(res)) res$churn_proba else res[[1]]
     decision_val <- if("decision" %in% names(res)) res$decision else ifelse(proba_val > 0.5, "Churn", "Fidèle")
     
     proba_pct <- round(as.numeric(proba_val) * 100, 2)
-    is_churn <- decision_val == "Churn"
+    is_churn <- decision_val %in% c("Churn", "Yes", "1")
     
     div(class = "results-container",
         fluidRow(
@@ -381,9 +367,10 @@ server <- function(input, output, session) {
           ),
           column(6,
                  div(class = "metric-box",
-                     div(class = "metric-label", "Décision du Modèle"),
+                     div(class = "metric-label", "Statut Prédictif"),
                      div(style = "margin-top: 8px;",
-                         span(class = if(is_churn) "badge-churn" else "badge-nochurn", decision_val)
+                         span(class = if(is_churn) "badge-churn" else "badge-nochurn", 
+                              if(is_churn) "Risque Churn" else "Client Fidèle")
                      )
                  )
           )

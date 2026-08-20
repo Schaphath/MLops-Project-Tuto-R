@@ -5,13 +5,13 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
-    image: telco-churn-api:1.2.0
+    image: churn-api:1.3.0
     container_name: telco-churn-api
     restart: unless-stopped
     expose:
       - "8080"
     environment:
-      TZ: "Africa/Abidjan"
+      TZ: "Europe/Paris"
     volumes:
       # Montage des artefacts en lecture seule : permet de mettre à jour
       # le modèle sans reconstruire l'image.
@@ -43,14 +43,14 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile
-    image: telco-churn-shiny:1.0.0
-    container_name: telco-churn-shiny
+    image: interface-shiny:1.3.0
+    container_name: telco-churn-interface
     restart: unless-stopped
     ports:
       - "3838:3838"
     environment:
       API_URL: "http://api:8080"
-      TZ: "Africa/Abidjan"
+      TZ: "Europe/Paris"
     networks:
       - churn-net
     depends_on:
@@ -79,4 +79,5 @@ services:
 networks:
   churn-net:
     driver: bridge
+    name: churn-network
     
