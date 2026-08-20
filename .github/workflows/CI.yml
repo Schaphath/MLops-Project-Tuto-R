@@ -54,7 +54,7 @@ jobs:
         with:
           image-ref: 'churn-api:ci'
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
@@ -65,7 +65,7 @@ jobs:
         with:
           image-ref: 'interface-shiny:ci'
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
@@ -82,19 +82,24 @@ jobs:
       - name: Démarrage des conteneurs via Docker Compose
         run: docker compose up -d --build
 
-      - name: Attente du statut Healthy des conteneurs
+      - name: Attente du statut Healthy des conteneurs (120s max)
         run: |
           echo "Attente de l'initialisation des services..."
-          timeout 60s bash -c '
-            until [ "$(docker inspect --format="{{.State.Health.Status}}" telco-churn-api)" == "healthy" ] && \
-                  [ "$(docker inspect --format="{{.State.Health.Status}}" telco-churn-interface)" == "healthy" ]; do
-              sleep 2
+          timeout 120s bash -c '
+            until [ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}" telco-churn-api 2>/dev/null)" == "healthy" ] && \
+                  [ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}" telco-churn-interface 2>/dev/null)" == "healthy" ]; do
+              echo "En attente du statut healthy..."
+              sleep 5
             done
           '
 
+      - name: Afficher les logs si échec
+        if: failure()
+        run: docker compose logs
+
       - name: Test d'inférence réel sur l'API (/predict)
         run: |
-          curl -s -X POST "http://localhost:8080/predict" \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "http://localhost:8080/predict" \
             -H "Content-Type: application/json" \
             -d '[{
               "gender": 1,
@@ -118,7 +123,17 @@ jobs:
               "ServiceSup_No": 0,
               "ServiceSup_Yes": 1,
               "No_Internet_Service": 0
-            }]' | grep -E "churn_proba|decision"
+            }]')
+          
+          echo "Réponse de l'API:"
+          echo "$RESPONSE"
+          
+          # Vérification que le statut HTTP est bien 200
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Erreur: L'API a répondu avec le code HTTP $HTTP_CODE"
+            exit 1
+          fi
 
       - name: Arrêt et nettoyage des conteneurs
         if: always()
