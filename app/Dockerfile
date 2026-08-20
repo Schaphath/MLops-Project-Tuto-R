@@ -4,16 +4,19 @@
 FROM rocker/r-ver:4.4 AS builder
 
 # Installation des dépendances système de build
-RUN apt-get update -qq && apt-get install -y --no-install-recommends \
-    libssl-dev \
-    libcurl4-openssl-dev \
-    libxml2-dev \
-    libsodium-dev \
-    make \
-    gcc \
-    g++ \
+RUN apt-get update -qq && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        libssl-dev \
+        libcurl4-openssl-dev \
+        libxml2-dev \
+        libsodium-dev \
+        make \
+        gcc \
+        g++ \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
+    
 # Installation des packages R via Posit + Nettoyage de la documentation
 RUN R -e "options(repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux__/noble/latest')); \
     install.packages(c('shiny', 'bslib', 'DT', 'dplyr', 'httr2', 'jsonlite'))" \

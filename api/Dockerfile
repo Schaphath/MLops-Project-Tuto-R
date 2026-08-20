@@ -4,16 +4,20 @@
 FROM rocker/r-ver:4.4 AS builder
 
 # Dépendances système pour le build
-RUN apt-get update -qq && apt-get install -y --no-install-recommends \
-    libssl-dev \
-    libcurl4-openssl-dev \
-    libxml2-dev \
-    libsodium-dev \
-    make \
-    gcc \
-    g++ \
+RUN apt-get update -qq && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        libssl-dev \
+        libcurl4-openssl-dev \
+        libxml2-dev \
+        libsodium-dev \
+        make \
+        gcc \
+        g++ \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
+    
+    
 # Installation des packages R (Binaires Posit pour build rapide)
 RUN R -e "options(repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux__/noble/latest')); \
     install.packages(c('plumber', 'jsonlite', 'dplyr', 'xgboost', 'caret', 'here'))"
