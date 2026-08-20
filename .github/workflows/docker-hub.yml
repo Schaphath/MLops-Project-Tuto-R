@@ -27,12 +27,16 @@ jobs:
     name: 2. Build & Push vers Docker Hub
     runs-on: ubuntu-latest
     needs: validate
-    # Le push ne se fait que sur la branche main (pas sur les Pull Requests)
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Récupération du code
         uses: actions/checkout@v4
+
+      # Extrait le hash Git court (ex: 3a4e594)
+      - name: Extraction du Git SHA court
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Configuration de Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,8 +55,9 @@ jobs:
           file: ./api/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/churn-api:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/churn-api:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-api:1.2.${{ github.run_number }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-api:${{ steps.vars.outputs.sha_short }}
 
       # Build & Push - Image Shiny App
       - name: Build & Push Image Shiny
@@ -62,5 +67,6 @@ jobs:
           file: ./app/Dockerfile
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/interface-shiny:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/interface-shiny:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:1.2.${{ github.run_number }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:${{ steps.vars.outputs.sha_short }}
