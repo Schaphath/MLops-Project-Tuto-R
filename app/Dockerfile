@@ -1,6 +1,8 @@
-# ==========================================
-# ÉTAPE 1 : Builder (Compilation des packages R)
-# ==========================================
+
+# Auteur : @Madiba
+
+
+# ÉTAPE 1 : Builder 
 FROM rocker/r-ver:4.4 AS builder
 
 # Installation des dépendances système de build
@@ -24,9 +26,8 @@ RUN R -e "options(repos = c(CRAN = 'https://packagemanager.posit.co/cran/__linux
     && rm -rf /usr/local/lib/R/site-library/*/help \
     && rm -rf /usr/local/lib/R/site-library/*/html
 
-# ==========================================
-# ÉTAPE 2 : Image Finale (Runtime Minimal)
-# ==========================================
+
+# ÉTAPE 2 : Image Finale
 FROM rocker/r-ver:4.4 AS runtime
 
 # Installation des bibliothèques système de RUNTIME uniquement
@@ -54,11 +55,10 @@ USER shiny
 
 EXPOSE 3838
 
-# Valeur par défaut adaptée au DNS d'un réseau Docker / Docker Compose
 ENV API_URL="http://api:8080"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:3838/ || exit 1
 
-# Lancement de l'application Shiny
+# Lancement de l'application 
 CMD ["Rscript", "-e", "shiny::runApp('/app', host='0.0.0.0', port=3838)"]

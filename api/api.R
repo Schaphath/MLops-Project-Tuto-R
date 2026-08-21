@@ -5,10 +5,8 @@
 
 
 
-# ============================================================================== #
-# API REST Plumber pour scoring Churn XGBoost (Caret & Production-Ready)        #
-# Auteur : Madiba                                                                #
-# ============================================================================== #
+# API REST Plumber pour scoring Churn XGBoost (Caret & Production-Ready)      
+# Auteur : Madiba                                                       
 
 library(plumber)
 library(jsonlite)
@@ -17,35 +15,30 @@ library(xgboost)
 library(caret)
 library(here)
 
-# ============================================================================== #
-# 1. Chargement global des artefacts ML                                         #
-# ============================================================================== #
 
-xgb_model  <- tryCatch(xgb.load(here("models", "xgb-classifier-model.json")), error = function(e) NULL)
-features   <- tryCatch(readRDS(here("models", "xgb-model-features.rds")), error = function(e) NULL)
+# Chargement global des artefacts ML                                         #
+xgb_model <- tryCatch(xgb.load(here("models", "xgb-classifier-model.json")), error = function(e) NULL)
+features <- tryCatch(readRDS(here("models", "xgb-model-features.rds")), error = function(e) NULL)
 caret_prep <- tryCatch(readRDS(here("models", "caret_prep.rds")), error = function(e) NULL)
-
 best_thresh <- if (file.exists(here("models", "optimal_threshold.rds"))) {
   readRDS(here("models", "optimal_threshold.rds"))
-} else {
+  } else {
   0.5
-}
+    }
 
-# Identification automatique des variables binaires (excluant tenure et MonthlyCharges)
+# Identification automatique des variables binaires 
 binary_features <- setdiff(features, c("tenure", "MonthlyCharges"))
 
-# ============================================================================== #
-# 2. Métadonnées API & Documentation Swagger                                    #
-# ============================================================================== #
+
+# Métadonnées API & Documentation Swagger                                    #
 
 #* @apiTitle Churn Prediction API
-#* @apiDescription API de scoring client basée sur un modèle XGBoost et un prétraitement Caret.
+#* @apiDescription API de scoring client basée sur un modèle XGBoost.
 #* @apiVersion 1.3.0
 
-# ============================================================================== #
-# 3. Middleware / Filtre CORS                                                    #
-# ============================================================================== #
 
+
+# Middleware / Filtre CORS                                                    #
 #* @filter cors
 function(req, res) {
   res$setHeader("Access-Control-Allow-Origin", "*")
@@ -59,18 +52,16 @@ function(req, res) {
   }
 }
 
-# ============================================================================== #
-# 4. Endpoint : Health Check                                                     #
-# ============================================================================== #
 
-#* Vérifier l'état de santé du service et la disponibilité des artefacts
+
+# Endpoint : Health Check                                                     #
+#* Vérifier l'état de l'API
 #* @get /health
 #* @serializer json
 function(res) {
-  
-  chk_model    <- !is.null(xgb_model)
+  chk_model <- !is.null(xgb_model)
   chk_features <- !is.null(features)
-  chk_prep     <- !is.null(caret_prep)
+  chk_prep <- !is.null(caret_prep)
   
   is_healthy <- chk_model && chk_features && chk_prep
   
@@ -97,17 +88,16 @@ function(res) {
   )
 }
 
-# ============================================================================== #
-# 5. Endpoint : Scoring Client avec Validation Stricte                          #
-# ============================================================================== #
 
+
+# Endpoint : Scoring Client avec Validation Stricte                          #
 #* Prédiction du Churn client
 #* @parser json
 #* @post /predict
 #* @serializer json
 function(req, res) {
   
-  # A. Parsing du body JSON
+  # Parsing du body JSON
   body_data <- tryCatch({
     if (is.character(req$postBody)) {
       fromJSON(req$postBody)
@@ -128,7 +118,7 @@ function(req, res) {
     return(list(error = "Bad Request", message = "Impossible d'interpréter le payload comme un tableau d'observations."))
   }
   
-  # B. Validation de la présence des colonnes obligatoires
+  # Validation de la présence des colonnes obligatoires
   missing_cols <- setdiff(features, names(df_input))
   if (length(missing_cols) > 0) {
     res$status <- 400
@@ -139,7 +129,7 @@ function(req, res) {
     ))
   }
   
-  # C. Validation des bornes métriques
+  # Validation des bornes métriques
   if ("tenure" %in% names(df_input)) {
     if (any(!is.numeric(df_input$tenure) | df_input$tenure < 0, na.rm = TRUE)) {
       res$status <- 400
@@ -181,11 +171,12 @@ function(req, res) {
     ))
   }
   
-  # D. Extraction des identifiants clients
+  # Extraction des identifiants clients
   id_col <- names(df_input)[tolower(names(df_input)) %in% c("customerid", "customer_id", "id_client", "id", "client_id")][1]
   client_ids <- if (!is.na(id_col)) as.character(df_input[[id_col]]) else paste0("CLIENT_", seq_len(nrow(df_input)))
   
-  # E. Pipeline de prétraitement Caret et Inférence XGBoost
+  
+  # Pipeline de prétraitement Caret et Inférence XGBoost
   tryCatch({
     # Application de la transformation Caret (step_range)
     df_scaled <- predict(caret_prep, df_input[, features, drop = FALSE])
@@ -200,11 +191,14 @@ function(req, res) {
     pred_class <- ifelse(pred_probs >= best_thresh, 1, 0)
     
     res$status <- 200
+    
+    version_model = "1.2.0"
     return(data.frame(
-      id_client   = client_ids,
+      id_client = client_ids,
       churn_proba = round(pred_probs, 4),
       churn_class = pred_class,
-      decision    = ifelse(pred_class == 1, "Churn", "Non Churn"),
+      decision = ifelse(pred_class == 1, "Churn", "Non Churn"),
+      version_model = version_model,
       stringsAsFactors = FALSE
     ))
     
@@ -219,10 +213,9 @@ function(req, res) {
   })
 }
 
-# ============================================================================== #
-# 6. Documentation Swagger                                                      #
-# ============================================================================== #
 
+
+# Documentation Swagger                                                      #
 #* @plumber
 function(pr) {
   pr$setApiSpec(function(spec) {

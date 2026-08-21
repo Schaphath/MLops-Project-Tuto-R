@@ -80,20 +80,20 @@ dfNew <- dfNew |> select(-MultipleLines_Yes)
 
 set.seed(123)
 train_index <- createDataPartition(dfNew$Churn, p = 0.8, list = FALSE)
-test_data   <- dfNew[-train_index, ]
+test_data <- dfNew[-train_index, ]
 
 # Chargement du modèle et artefacts
-xgb_model   <- xgb.load(here("models", "xgb-classifier-model.json"))
-rec_prep    <- readRDS(here("models", "recipe_prep.rds"))
+xgb_model <- xgb.load(here("models", "xgb-classifier-model.json"))
+rec_prep <- readRDS(here("models", "recipe_prep.rds"))
 best_thresh <- if(file.exists(here("models", "optimal_threshold.rds"))) readRDS(here("models", "optimal_threshold.rds")) else 0.5
 
 # Application du prétraitement d'entraînement
 x_test_df  <- bake(rec_prep, new_data = test_data) %>% select(-Churn)
 x_test_mat <- as.matrix(x_test_df)
-y_test     <- test_data$Churn
+y_test <- test_data$Churn
 
 # Prédictions
-pred_prob  <- predict(xgb_model, x_test_mat)
+pred_prob <- predict(xgb_model, x_test_mat)
 pred_class <- as.integer(pred_prob >= best_thresh)
 
 
@@ -103,7 +103,7 @@ pred_class <- as.integer(pred_prob >= best_thresh)
 #============================================#
 cm <- confusionMatrix(
   factor(pred_class, levels = c(0, 1)),
-  factor(y_test,     levels = c(0, 1)), 
+  factor(y_test, levels = c(0, 1)), 
   positive = "1"
 )
 
@@ -185,9 +185,9 @@ save_plot("02_courbe_roc")
 
 
 
-#==========================================================#
-#  SORTIE 3 : Importance des features (Gain — top 10)      #
-#==========================================================#
+#======================================#
+#  SORTIE 3 : Importance des features  #
+#======================================#
 importance_matrix <- xgb.importance(feature_names = colnames(x_test_mat), model = xgb_model)
 
 imp_top10 <- importance_matrix %>%
@@ -214,9 +214,9 @@ save_plot("03_importance_features")
 
 
 
-#==========================================================================#
-#  SORTIE 4 : Impact SHAP des variables sur la probabilité de churn        #
-#==========================================================================#
+#====================================================================#
+#  SORTIE 4 : Impact SHAP des variables sur la probabilité de churn  #
+#====================================================================#
 shap_long <- shap.prep(xgb_model = xgb_model, X_train = x_test_mat, top_n = 10)
 
 p_shap <- shap.plot.summary(shap_long) +
@@ -229,6 +229,7 @@ p_shap <- shap.plot.summary(shap_long) +
        caption = "Méthode SHAP : décomposition locale des décisions") +
   theme_churn() +
   theme(legend.position = "right")
+
 
 print(p_shap)
 save_plot("04_shap_impact_variables", w = 12, h = 8)

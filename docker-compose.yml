@@ -1,6 +1,6 @@
 services:
 
-  # API de scoring — Plumber / XGBoost
+  # API de scoring 
   api:
     build:
       context: ./api
@@ -38,7 +38,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Client Shiny — Interface utilisateur
+  # Interface utilisateur
   shiny:
     build:
       context: ./app

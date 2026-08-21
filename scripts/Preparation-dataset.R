@@ -17,9 +17,6 @@ churn_modif <- read.csv(paste(path.churn, "churn_modif.csv", sep = "/"))
 churn_modif <- churn_modif |> 
   mutate(gender = ifelse(gender == "Male", "Yes", "No"))
 
-## Suppression de quelques variables 
-#df <- df |> dplyr::select(-c(gender, PhoneService, TotalCharges))
-
 
 ## Foncttion RecodeYesNo
 RecodeYesNo <- function(data) {

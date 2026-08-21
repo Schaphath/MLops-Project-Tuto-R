@@ -7,12 +7,11 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # ---------------------------------------------------
-  # JOB 1 : Validation de la syntaxe Docker Compose
-  # ---------------------------------------------------
+  
+  # Validation de la syntaxe Docker Compose
   validate:
     name: 1. Validation Docker Compose
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Récupération du code
         uses: actions/checkout@v4
@@ -20,18 +19,17 @@ jobs:
       - name: Vérification du fichier compose
         run: docker compose config
 
-  # ---------------------------------------------------
+
   # JOB 2 : Build des images et Publication Docker Hub
-  # ---------------------------------------------------
   build-and-push:
     name: 2. Build & Push vers Docker Hub
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: validate
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Récupération du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 
 
       # Extrait le hash Git court (ex: 3a4e594)
       - name: Extraction du Git SHA court
@@ -70,3 +68,5 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:1.2.${{ github.run_number }}
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:${{ steps.vars.outputs.sha_short }}
+
+# @Madiba 

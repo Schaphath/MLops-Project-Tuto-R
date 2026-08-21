@@ -4,3 +4,6 @@
 .Ruserdata
 .Rprofile
 brouillon/
+renv/library/
+renv/python/
+renv/staging/

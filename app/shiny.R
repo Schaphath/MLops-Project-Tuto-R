@@ -1,4 +1,8 @@
-# Auteur : Madiba (Optimisé & Aligné avec l'API XGBoost 21 variables)
+
+# Auteur : @Madiba 
+
+
+# Librairies
 library(shiny)
 library(bslib)
 library(DT)
@@ -8,6 +12,8 @@ library(jsonlite)
 
 # Endpoint local de l'API Plumber
 API_URL <- Sys.getenv("API_URL", unset = "http://127.0.0.1:8080")
+
+
 
 #=================================================#
 #                   INTERFACE UI                  #
@@ -180,20 +186,21 @@ ui <- fluidPage(
     "))
   ),
   
-  # Banner En-tête
+  # En-tête
   div(class = "app-header",
       div(class = "app-title",
           tags$img(src = "https://img.icons8.com/fluency/28/artificial-intelligence.png"),
-          "Inférence Churn Client - XGBoost API"
+          "Churn Client - XGBoost"
       )
   ),
   
   # Formulaire centré
   div(class = "main-container",
       
-      # ============================================================ #
-      # Section 1 - Profil client                                    #
-      # ============================================================ #
+      
+      #============================#
+      # Section 1 - Profil client  #
+      #============================#
       div(class = "custom-card",
           div(class = "card-subtitle",
               span(class = "step-number", "1"), "Profil Client"
@@ -210,13 +217,11 @@ ui <- fluidPage(
           )
       ),
       
-      # ============================================================ #
-      # Section 2 - Contrat & Facturation                            #
-      # ============================================================ #
+      #====================================#
+      # Section 2 - Contrat & Facturation  #
+      #====================================#
       div(class = "custom-card",
-          div(class = "card-subtitle",
-              span(class = "step-number", "2"), "Contrat & Facturation"
-          ),
+          div(class = "card-subtitle", span(class = "step-number", "2"), "Contrat & Facturation"),
           fluidRow(
             column(4, numericInput("tenure", "Ancienneté (mois)", value = 1, min = 0, max = 100)),
             column(4, numericInput("MonthlyCharges", "Montant Mensuel (€)", value = 29.85, min = 0, step = 0.5)),
@@ -234,9 +239,9 @@ ui <- fluidPage(
           )
       ),
       
-      # ============================================================ #
-      # Section 3 - Services & Options souscrites                     #
-      # ============================================================ #
+      #=============================================#
+      # Section 3 - Services & Options souscrites   #
+      #=============================================#
       div(class = "custom-card",
           div(class = "card-subtitle",
               span(class = "step-number", "3"), "Services & Options"
@@ -266,9 +271,9 @@ ui <- fluidPage(
   )
 )
 
-#=================================================#
-#                   LOGIQUE SERVER                #
-#=================================================#
+#============================#
+#       LOGIQUE SERVER       #
+#============================#
 server <- function(input, output, session) {
   
   # Construction du dataframe respectant exactement la liste des 21 variables du modèle XGBoost
@@ -379,4 +384,7 @@ server <- function(input, output, session) {
   })
 }
 
+#=========================#
+#  Lancer l'application   #
+#=========================#
 shinyApp(ui = ui, server = server)

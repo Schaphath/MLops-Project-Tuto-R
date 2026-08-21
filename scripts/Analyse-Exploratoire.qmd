@@ -1,5 +1,5 @@
 ---
-title: "Démo projet attrition client (Churn) sous R"
+title: "Analyse Exploration - Projet attrition client sur R"
 author: "@Madiba"
 date: today
 format: 
@@ -20,13 +20,16 @@ execute:
 editor: visual
 ---
 
-------------------------------------------------------------------------
+
 
 ### `Contexte et Enjeux`
 
-L’objectif de ce projet est de comprendre et d'anticiper le comportement des clients d'une entreprise de télécommunications afin de prédire le risque de résiliation.
+L’objectif de ce projet est de comprendre et d'anticiper le comportement des clients d'une entreprise de
+télécommunications afin de prédire le risque de résiliation. En exploitant l’historique et le profil de la base clientèle,
+ce projet vise à identifier les facteurs clés qui poussent un abonné à quitter l'entreprise. Cette démarche permettra de
+concevoir des programmes de fidélisation proactifs et ciblés, optimisant ainsi les investissements marketing tout en
+limitant les pertes de revenus.
 
-En exploitant l’historique et le profil de la base clientèle, ce projet vise à identifier les facteurs clés qui poussent un abonné à quitter l'entreprise. Cette démarche permettra de concevoir des programmes de fidélisation proactifs et ciblés, optimisant ainsi les investissements marketing tout en limitant les pertes de revenus.
 
 ### `Description du Jeu de Données`
 
@@ -236,7 +239,6 @@ churn |> diagnose_numeric() |>
   table_format()
 
 ```
-
 
 ------------------------------------------------------------------------
 
@@ -462,7 +464,6 @@ resultats_graphiques$groupe2
 
 ```
 
-
 ##### `Test de Mann Whitney`
 
 ```{r, message=FALSE, warning=FALSE}
@@ -491,7 +492,6 @@ MannWhitney_test <- function(data, target) {
  
 ```
 
-
 ```{r, message=FALSE, warning=FALSE}
 
 #| fig-width: 18
@@ -502,7 +502,6 @@ MannWhitney_test <- function(data, target) {
 MannWhitney_test(churn, "Churn")
 
 ```
-
 
 ------------------------------------------------------------------------
 
@@ -563,7 +562,6 @@ Un client **sénior**, vivant **seul**, équipé de la **fibre optique**, sous u
 :::
 
 ------------------------------------------------------------------------
-
 
 ```{r}
 path.save <- here::here("data", "process")
