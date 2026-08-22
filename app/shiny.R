@@ -189,7 +189,7 @@ ui <- fluidPage(
   # En-tête
   div(class = "app-header",
       div(class = "app-title",
-          tags$img(src = "https://img.icons8.com/fluency/28/artificial-intelligence.png"),
+          #tags$img(src = "https://img.icons8.com/fluency/28/artificial-intelligence.png"),
           "Churn Client - XGBoost"
       )
   ),
@@ -223,20 +223,21 @@ ui <- fluidPage(
       div(class = "custom-card",
           div(class = "card-subtitle", span(class = "step-number", "2"), "Contrat & Facturation"),
           fluidRow(
-            column(4, numericInput("tenure", "Ancienneté (mois)", value = 1, min = 0, max = 100)),
-            column(4, numericInput("MonthlyCharges", "Montant Mensuel (€)", value = 29.85, min = 0, step = 0.5)),
-            column(4, selectInput("PaperlessBilling", "Facture en ligne",
-                                  choices = c("Oui" = 1, "Non" = 0), selected = 1))
-          ),
-          fluidRow(
-            column(6, selectInput("Contract", "Type de Contrat",
+            column(3, numericInput("tenure", "Ancienneté (mois)", value = 1, min = 0, max = 100)),
+            column(2, numericInput("MonthlyCharges", "Montant Mensuel (€)", value = 29.85, min = 0, step = 0.5)),
+            column(2, selectInput("PaperlessBilling", "Facture en ligne",
+                                  choices = c("Oui" = 1, "Non" = 0), selected = 1)), 
+            column(2, selectInput("Contract", "Type de Contrat",
                                   choices = c("Mois par mois" = "Month_to_month", "1 An" = "One_year", "2 Ans" = "Two_year"),
                                   selected = "Month_to_month")),
-            column(6, selectInput("PaymentMethod", "Mode de Paiement",
-                                  choices = c("Chèque électronique" = "Electronic_check", "Virement" = "Bank_transfer",
-                                              "Carte bancaire" = "Credit_card", "Chèque postal" = "Mailed_check"),
-                                  selected = "Electronic_check"))
+            fluidRow(
+              column(3, selectInput("PaymentMethod", "Mode de Paiement",
+                                    choices = c("Chèque électronique" = "Electronic_check", "Virement" = "Bank_transfer",
+                                                "Carte bancaire" = "Credit_card", "Chèque postal" = "Mailed_check"),
+                                    selected = "Electronic_check"))
+            )
           )
+          
       ),
       
       #=============================================#
