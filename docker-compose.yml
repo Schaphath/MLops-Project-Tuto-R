@@ -1,17 +1,15 @@
 services:
-
-  # API de scoring 
   api:
     build:
       context: ./api
       dockerfile: Dockerfile
-    image: churn-api:1.3.0
+    image: churn-api:${APP_VERSION:-latest}
     container_name: telco-churn-api
     restart: unless-stopped
     expose:
-      - "8080"
+      - "${API_PORT}"
     environment:
-      TZ: "Europe/Paris"
+      TZ: "${TIMEZONE}"
     volumes:
       # Montage des artefacts en lecture seule : permet de mettre à jour
       # le modèle sans reconstruire l'image.
@@ -19,7 +17,7 @@ services:
     networks:
       - churn-net
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:${API_PORT}/health"]
       interval: 30s
       timeout: 5s
       start_period: 60s
@@ -38,26 +36,25 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Interface utilisateur
   shiny:
     build:
       context: ./app
       dockerfile: Dockerfile
-    image: interface-shiny:1.3.0
+    image: interface-shiny:${APP_VERSION:-latest}
     container_name: telco-churn-interface
     restart: unless-stopped
     ports:
-      - "3838:3838"
+      - "${SHINY_PORT}:${SHINY_PORT}"
     environment:
-      API_URL: "http://api:8080"
-      TZ: "Europe/Paris"
+      API_URL: "http://api:${API_PORT}"
+      TZ: "${TIMEZONE}"
     networks:
       - churn-net
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3838/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:${SHINY_PORT}/"]
       interval: 30s
       timeout: 5s
       start_period: 60s
@@ -80,4 +77,3 @@ networks:
   churn-net:
     driver: bridge
     name: churn-network
-    

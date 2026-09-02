@@ -1,0 +1,25 @@
+[
+  {
+    "gender": 1,
+    "SeniorCitizen": 0,
+    "Partner": 1,
+    "Dependents": 0,
+    "tenure": 1,
+    "PhoneService": 0,
+    "PaperlessBilling": 1,
+    "MonthlyCharges": 29.85,
+    "MultipleLines_No": 0,
+    "InternetService_DSL": 1,
+    "InternetService_Fiber_optic": 0,
+    "Contract_Month_to_month": 1,
+    "Contract_One_year": 0,
+    "Contract_Two_year": 0,
+    "PaymentMethod_Bank_transfer": 0,
+    "PaymentMethod_Credit_card": 0,
+    "PaymentMethod_Electronic_check": 1,
+    "PaymentMethod_Mailed_check": 0,
+    "ServiceSup_No": 0,
+    "ServiceSup_Yes": 1,
+    "No_Internet_Service": 1
+  }
+]

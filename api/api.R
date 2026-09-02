@@ -1,12 +1,9 @@
 
-
 # Auteur @Madiba
 
-
-
-
-# API REST Plumber pour scoring Churn XGBoost (Caret & Production-Ready)      
-# Auteur : Madiba                                                       
+#=============================================#
+# API REST Plumber pour scoring Churn XGBoost #      
+#=============================================#                                                       
 
 library(plumber)
 library(jsonlite)
@@ -18,8 +15,11 @@ library(here)
 
 # Chargement global des artefacts ML                                         #
 xgb_model <- tryCatch(xgb.load(here("models", "xgb-classifier-model.json")), error = function(e) NULL)
+
 features <- tryCatch(readRDS(here("models", "xgb-model-features.rds")), error = function(e) NULL)
+
 caret_prep <- tryCatch(readRDS(here("models", "caret_prep.rds")), error = function(e) NULL)
+
 best_thresh <- if (file.exists(here("models", "optimal_threshold.rds"))) {
   readRDS(here("models", "optimal_threshold.rds"))
   } else {
@@ -34,9 +34,7 @@ binary_features <- setdiff(features, c("tenure", "MonthlyCharges"))
 
 #* @apiTitle Churn Prediction API
 #* @apiDescription API de scoring client basée sur un modèle XGBoost.
-#* @apiVersion 1.3.0
-
-
+#* @apiVersion 1.2.0
 
 # Middleware / Filtre CORS                                                    #
 #* @filter cors
@@ -55,36 +53,74 @@ function(req, res) {
 
 
 # Endpoint : Health Check                                                     #
-#* Vérifier l'état de l'API
+#* Vérification de l'état de santé de l'API
 #* @get /health
-#* @serializer json
+#* @serializer json list(auto_unbox = TRUE)
 function(res) {
-  chk_model <- !is.null(xgb_model)
-  chk_features <- !is.null(features)
-  chk_prep <- !is.null(caret_prep)
   
-  is_healthy <- chk_model && chk_features && chk_prep
+  # Diagnostic individuel de chaque artefact
+  # --- XGBoost Model ---
+  has_model_var <- exists("xgb_model", inherits = TRUE) && !is.null(xgb_model)
+  class_model <- if (has_model_var) class(xgb_model) else NULL
+  chk_model <- has_model_var && any(c("xgb.Booster", "xgb.Booster.handle") %in% class_model)
   
+  # --- Features ---
+  has_feat_var <- exists("features", inherits = TRUE) && !is.null(features)
+  chk_features <- has_feat_var && is.character(features) && length(features) > 0
+  
+  # --- Preprocessing (Caret) ---
+  has_prep_var  <- exists("caret_prep", inherits = TRUE) && !is.null(caret_prep)
+  class_prep <- if (has_prep_var) class(caret_prep) else NULL
+  chk_prep <- has_prep_var && any(c("train", "preProcess", "list") %in% class_prep)
+  
+  # Identification des échecs
+  missing_artifacts <- c()
+  if (!chk_model) missing_artifacts <- c(missing_artifacts, "xgb_model")
+  if (!chk_features) missing_artifacts <- c(missing_artifacts, "features")
+  if (!chk_prep) missing_artifacts <- c(missing_artifacts, "caret_prep")
+  
+  is_healthy <- length(missing_artifacts) == 0
+  
+  # Réponse en cas d'échec (HTTP 503 Service Unavailable)
   if (!is_healthy) {
     res$status <- 503
+    
     return(list(
       status = "unhealthy",
-      working_dir = getwd(),
-      diagnostic = list(
-        model_loaded = chk_model,
-        features_loaded = chk_features,
-        caret_prep_loaded = chk_prep
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+      error_code = "ARTIFACT_MISSING",
+      message = sprintf("Dégradation du service : %d artefact(s) manquant(s) ou invalide(s).", length(missing_artifacts)),
+      missing_artifacts = missing_artifacts,
+      diagnostics = list(
+        xgb_model = list(
+          loaded = chk_model,
+          status = if (chk_model) "OK" else if (!has_model_var) "MISSING" else "INVALID_CLASS",
+          detected_class = if (has_model_var) class_model else "none"
+        ),
+        features = list(
+          loaded = chk_features,
+          status = if (chk_features) "OK" else if (!has_feat_var) "MISSING" else "EMPTY_OR_INVALID",
+          count = if (has_feat_var) length(features) else 0
+        ),
+        caret_prep = list(
+          loaded = chk_prep,
+          status = if (chk_prep) "OK" else if (!has_prep_var) "MISSING" else "INVALID_CLASS",
+          detected_class = if (has_prep_var) class_prep else "none"
+        )
       )
     ))
   }
   
+  # Réponse en de succès (HTTP 200 OK)
   res$status <- 200
   list(
     status = "healthy",
-    timestamp = Sys.time(),
-    model_loaded = TRUE,
-    features_count = length(features),
-    decision_thresh = best_thresh
+    timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+    details = list(
+      model_loaded = TRUE,
+      features_count = length(features),
+      decision_thresh = if (exists("best_thresh", inherits = TRUE)) best_thresh else NA
+    )
   )
 }
 
@@ -212,8 +248,6 @@ function(req, res) {
     ))
   })
 }
-
-
 
 # Documentation Swagger                                                      #
 #* @plumber

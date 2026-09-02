@@ -1,23 +1,33 @@
 name: CI/CD Pipeline - Telco Churn
 
 on:
-  # Chaque lundi à 9h00
-  schedule:
-    - cron: '0 9 * * 1'
-
-on:
   push:
     branches: [ "main" ]
+  schedule:
+    # Chaque lundi à 9h00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: # Permet le déclenchement manuel depuis GitHub UI
 
 jobs:
-  
-  # Validation de la syntaxe Docker Compose
+
+  # JOB 1 : Validation de la syntaxe Docker Compose
   validate:
     name: 1. Validation Docker Compose
     runs-on: ubuntu-24.04
     steps:
       - name: Récupération du code
         uses: actions/checkout@v4
+
+      - name: Création d'un .env temporaire pour la validation
+        run: |
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            echo "APP_VERSION=1.4.0" > .env
+            echo "TIMEZONE=Europe/Paris" >> .env
+            echo "API_PORT=8080" >> .env
+            echo "SHINY_PORT=3838" >> .env
+          fi
 
       - name: Vérification du fichier compose
         run: docker compose config
@@ -28,13 +38,13 @@ jobs:
     name: 2. Build & Push vers Docker Hub
     runs-on: ubuntu-24.04
     needs: validate
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Exécution sur push main, cron ou déclenchement manuel
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: Récupération du code
         uses: actions/checkout@v4 
 
-      # Extrait le hash Git court (ex: 3a4e594)
       - name: Extraction du Git SHA court
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -48,7 +58,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Build & Push - Image API
+      # Build & Push - Image API (avec cache GitHub)
       - name: Build & Push Image API
         uses: docker/build-push-action@v5
         with:
@@ -59,8 +69,10 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-api:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-api:1.2.${{ github.run_number }}
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-api:${{ steps.vars.outputs.sha_short }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
 
-      # Build & Push - Image Shiny App
+      # Build & Push - Image Shiny App (avec cache GitHub)
       - name: Build & Push Image Shiny
         uses: docker/build-push-action@v5
         with:
@@ -71,5 +83,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:1.2.${{ github.run_number }}
             ${{ secrets.DOCKERHUB_USERNAME }}/telco-churn-interface:${{ steps.vars.outputs.sha_short }}
+          cache-from: type=gha,scope=shiny
+          cache-to: type=gha,mode=max,scope=shiny
 
-# @Madiba 
+# @Madiba

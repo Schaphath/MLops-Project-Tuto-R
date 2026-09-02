@@ -224,7 +224,7 @@ ui <- fluidPage(
           div(class = "card-subtitle", span(class = "step-number", "2"), "Contrat & Facturation"),
           fluidRow(
             column(3, numericInput("tenure", "Ancienneté (mois)", value = 1, min = 0, max = 100)),
-            column(2, numericInput("MonthlyCharges", "Montant Mensuel (€)", value = 29.85, min = 0, step = 0.5)),
+            column(2, numericInput("MonthlyCharges", "Montant Mensuel (€)", value = 29.85, min = 10, step = 0.5, max = 999.9)),
             column(2, selectInput("PaperlessBilling", "Facture en ligne",
                                   choices = c("Oui" = 1, "Non" = 0), selected = 1)), 
             column(2, selectInput("Contract", "Type de Contrat",
@@ -321,7 +321,7 @@ server <- function(input, output, session) {
     # Verification du Healthcheck API
     health_url <- paste0(API_URL, "/health")
     api_online <- tryCatch({
-      res <- request(health_url) %>% req_timeout(2) %>% req_perform()
+      res <- request(health_url)  |>  req_timeout(2) |> req_perform()
       resp_status(res) == 200
     }, error = function(e) FALSE)
     
@@ -336,13 +336,13 @@ server <- function(input, output, session) {
     df <- formatted_payload()
     
     tryCatch({
-      req_obj <- request(paste0(API_URL, "/predict")) %>%
-        req_headers("Content-Type" = "application/json") %>%
-        req_body_json(df) %>%
-        req_timeout(5) %>%
+      req_obj <- request(paste0(API_URL, "/predict")) |>
+        req_headers("Content-Type" = "application/json") |>
+        req_body_json(df) |>
+        req_timeout(5) |>
         req_perform()
       
-      resp_body_string(req_obj) %>% fromJSON()
+      resp_body_string(req_obj) |> fromJSON()
       
     }, error = function(e) {
       showNotification(paste0("Erreur lors de la prédiction : ", conditionMessage(e)), type = "error", duration = 5)

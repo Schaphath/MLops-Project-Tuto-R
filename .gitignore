@@ -7,3 +7,4 @@ brouillon/
 renv/library/
 renv/python/
 renv/staging/
+.env 
